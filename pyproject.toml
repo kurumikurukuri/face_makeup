@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "face_makeup"
+version = "0.1.0"
+description = "Face makeup simulation library using MediaPipe"
+readme = "README.md"
+requires-python = ">=3.10"
+
+
+keywords = ["face", "makeup", "mediapipe", "computer-vision"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+
+dependencies = [
+    "opencv-python>=4.7.0",
+    "numpy>=1.25.0",
+    "mediapipe==0.10.21",
+    "Pillow>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+app = [
+    "streamlit>=1.24.0",
+]
+
+[project.urls]
+Repository = "https://github.com/kurumikurukuri/face_makeup.git"
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
