@@ -1,6 +1,5 @@
 """
-顔検出
-MediaPipe Face Detection を使用
+Face detection using MediaPipe Face Detection.
 """
 from typing import List
 import numpy as np
@@ -10,12 +9,12 @@ from .types import FaceBBox
 
 
 class FaceDetector:
-    """MediaPipe Face Detection を使用した顔検出"""
+    """Face detection using MediaPipe Face Detection."""
 
     def __init__(self, min_detection_confidence: float = 0.5):
         """
         Args:
-            min_detection_confidence: 検出の信頼度閾値 (0..1)
+            min_detection_confidence: Detection confidence threshold (0..1).
         """
         self.min_detection_confidence = min_detection_confidence
         self.detector = mp.solutions.face_detection.FaceDetection(
@@ -66,6 +65,6 @@ class FaceDetector:
         return bboxes
 
     def __del__(self):
-        """リソース解放"""
+        """Release resources."""
         if hasattr(self, 'detector'):
             self.detector.close()

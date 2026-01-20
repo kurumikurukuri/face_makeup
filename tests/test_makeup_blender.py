@@ -4,8 +4,8 @@ Tests for MakeupBlender class.
 import pytest
 import numpy as np
 
-from src.face_makeup.core.makeup_blender import MakeupBlender
-from src.face_makeup.core.types import ColorParams
+from face_makeup.core.makeup_blender import MakeupBlender
+from face_makeup.core.types import ColorParams
 
 
 @pytest.fixture
@@ -166,12 +166,13 @@ class TestMakeupBlenderValidation:
         with pytest.raises(ValueError, match="must be"):
             blender.blend(rgba_image, full_mask, color_params, opacity=0.5)
 
-    def test_invalid_mask_dtype(self, blender, sample_image):
-        """Test that invalid mask dtype raises error."""
-        uint8_mask = np.ones((100, 100), dtype=np.uint8)
+    def test_uint8_mask_accepted(self, blender, sample_image):
+        """Test that uint8 mask is accepted and converted to float32."""
+        uint8_mask = np.ones((100, 100), dtype=np.uint8) * 255
         color_params = ColorParams(target_rgb=(255, 0, 0))
-        with pytest.raises(ValueError, match="must be float32"):
-            blender.blend(sample_image, uint8_mask, color_params, opacity=0.5)
+        # Should not raise - uint8 is now accepted and converted internally
+        result = blender.blend(sample_image, uint8_mask, color_params, opacity=0.5)
+        assert result.shape == sample_image.shape
 
     def test_invalid_mask_shape(self, blender, sample_image):
         """Test that 3D mask raises error."""
@@ -231,3 +232,176 @@ class TestMakeupBlenderEdgeCases:
         result = blender.blend(sample_image, partial_mask, color_params, opacity=1.0)
         # Top half should be unchanged
         assert np.array_equal(result[:40, :], sample_image[:40, :])
+
+
+class TestSoftenMask:
+    """Tests for _soften_mask distance-based attenuation."""
+
+    def test_returns_float32(self, blender):
+        """Output is always float32."""
+        mask = np.ones((50, 50), dtype=np.float32)
+        result = blender._soften_mask(mask, blur_strength=0.5)
+        assert result.dtype == np.float32
+
+    def test_uint8_input_converted(self, blender):
+        """uint8 0/255 mask is converted to float32 0.0-1.0."""
+        mask = np.full((50, 50), 255, dtype=np.uint8)
+        result = blender._soften_mask(mask, blur_strength=0.0)
+        assert result.dtype == np.float32
+        np.testing.assert_allclose(result, 1.0)
+
+    def test_uint8_zero_mask(self, blender):
+        """uint8 zero mask stays zero."""
+        mask = np.zeros((50, 50), dtype=np.uint8)
+        result = blender._soften_mask(mask, blur_strength=0.5)
+        np.testing.assert_allclose(result, 0.0)
+
+    def test_zero_blur_strength_no_attenuation(self, blender):
+        """blur_strength <= 0 returns the mask as-is (no attenuation)."""
+        mask = np.zeros((50, 50), dtype=np.float32)
+        mask[10:40, 10:40] = 1.0
+        result = blender._soften_mask(mask, blur_strength=0.0)
+        np.testing.assert_array_equal(result, mask)
+
+    def test_negative_blur_strength_no_attenuation(self, blender):
+        """Negative blur_strength treated same as zero (early exit)."""
+        mask = np.ones((50, 50), dtype=np.float32)
+        result = blender._soften_mask(mask, blur_strength=-0.5)
+        np.testing.assert_array_equal(result, mask)
+
+    def test_empty_mask_returns_zeros(self, blender):
+        """All-zero mask is returned unchanged regardless of blur_strength."""
+        mask = np.zeros((50, 50), dtype=np.float32)
+        result = blender._soften_mask(mask, blur_strength=0.5)
+        np.testing.assert_allclose(result, 0.0)
+
+    def test_center_pixel_stays_at_one(self, blender):
+        """Center of a large filled mask stays at 1.0."""
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[10:90, 10:90] = 1.0
+        result = blender._soften_mask(mask, blur_strength=0.3)
+        assert result[50, 50] == pytest.approx(1.0, abs=1e-5)
+
+    def test_boundary_pixel_equals_blur_strength(self, blender):
+        """Boundary pixels approach blur_strength value."""
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[20:80, 20:80] = 1.0
+        blur_strength = 0.4
+        result = blender._soften_mask(mask, blur_strength=blur_strength)
+        # Pixels at the edge of the mask (distance=1 from boundary)
+        # should be close to blur_strength
+        # Check a pixel just inside the boundary
+        boundary_val = result[20, 50]
+        assert boundary_val < 0.6  # Well below center value
+        assert boundary_val >= blur_strength - 0.1  # Close to blur_strength
+
+    def test_attenuation_monotonic_from_edge_to_center(self, blender):
+        """Values increase monotonically from boundary toward center."""
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[10:90, 10:90] = 1.0
+        result = blender._soften_mask(mask, blur_strength=0.2)
+        # Sample along a horizontal line from edge to center
+        row = 50
+        edge = result[row, 11]   # just inside mask
+        mid = result[row, 30]    # midway
+        center = result[row, 50] # center
+        assert edge <= mid <= center
+
+    def test_higher_blur_strength_less_falloff(self, blender):
+        """Higher blur_strength produces less falloff at edges."""
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[20:80, 20:80] = 1.0
+        result_low = blender._soften_mask(mask, blur_strength=0.1)
+        result_high = blender._soften_mask(mask, blur_strength=0.8)
+        # Edge pixel with high blur_strength should be brighter
+        edge_low = result_low[20, 50]
+        edge_high = result_high[20, 50]
+        assert edge_high > edge_low
+
+    def test_blur_strength_one_no_falloff(self, blender):
+        """blur_strength=1.0 means no falloff (attenuation is always 1)."""
+        mask = np.zeros((80, 80), dtype=np.float32)
+        mask[10:70, 10:70] = 1.0
+        result = blender._soften_mask(mask, blur_strength=1.0)
+        # All masked pixels should remain 1.0
+        np.testing.assert_allclose(result[10:70, 10:70], 1.0, atol=1e-5)
+        # Unmasked pixels should remain 0.0
+        np.testing.assert_allclose(result[0:10, :], 0.0)
+
+    def test_unmasked_region_stays_zero(self, blender):
+        """Pixels outside the mask remain 0 regardless of blur_strength."""
+        mask = np.zeros((80, 80), dtype=np.float32)
+        mask[30:50, 30:50] = 1.0
+        result = blender._soften_mask(mask, blur_strength=0.5)
+        assert result[0, 0] == 0.0
+        assert result[79, 79] == 0.0
+        np.testing.assert_allclose(result[0:30, :], 0.0)
+
+    def test_output_shape_matches_input(self, blender):
+        """Output shape matches input mask shape."""
+        for shape in [(50, 50), (100, 200), (200, 100)]:
+            mask = np.ones(shape, dtype=np.float32)
+            result = blender._soften_mask(mask, blur_strength=0.5)
+            assert result.shape == shape
+
+    def test_single_pixel_mask(self, blender):
+        """Single pixel mask: distanceTransform normalizes to 1.0."""
+        mask = np.zeros((50, 50), dtype=np.float32)
+        mask[25, 25] = 1.0
+        result = blender._soften_mask(mask, blur_strength=0.3)
+        # Single pixel is the farthest point from any boundary,
+        # so dist_norm=1.0 and attenuation=1.0
+        assert result[25, 25] == pytest.approx(1.0, abs=1e-5)
+        assert result[0, 0] == 0.0
+
+
+class TestCreateEyeirisMaskTypeConversion:
+    """Tests for _create_eyeiris_mask type conversion fallbacks (coverage gaps)."""
+
+    def test_uint8_iris_mask_accepted(self, blender):
+        """Test that uint8 iris mask is accepted (line 261 coverage)."""
+        # Create uint8 masks (0/255 format)
+        eyeiris_mask = np.zeros((100, 100), dtype=np.uint8)
+        eyeiris_mask[40:60, 40:60] = 255  # Iris region
+
+        eye_mask = np.zeros((100, 100), dtype=np.uint8)
+        eye_mask[30:70, 30:70] = 255  # Eye region
+
+        # Should not raise - uint8 is accepted
+        result = blender._create_eyeiris_mask(eyeiris_mask, eye_mask)
+
+        # Result should be float32 in range [0, 1]
+        assert result.dtype == np.float32
+        assert result.shape == eyeiris_mask.shape
+        assert result.min() >= 0.0
+        assert result.max() <= 1.0
+
+    def test_uint8_eye_mask_accepted(self, blender):
+        """Test that uint8 eye mask is accepted (line 266 coverage)."""
+        # Float32 iris mask, uint8 eye mask
+        eyeiris_mask = np.zeros((100, 100), dtype=np.float32)
+        eyeiris_mask[40:60, 40:60] = 1.0
+
+        eye_mask = np.zeros((100, 100), dtype=np.uint8)
+        eye_mask[30:70, 30:70] = 255  # uint8 format
+
+        result = blender._create_eyeiris_mask(eyeiris_mask, eye_mask)
+
+        assert result.dtype == np.float32
+        assert result.shape == eyeiris_mask.shape
+
+    def test_both_uint8_masks(self, blender):
+        """Test with both masks in uint8 format."""
+        eyeiris_mask = np.zeros((100, 100), dtype=np.uint8)
+        eyeiris_mask[40:60, 40:60] = 255
+
+        eye_mask = np.zeros((100, 100), dtype=np.uint8)
+        eye_mask[30:70, 30:70] = 255
+
+        result = blender._create_eyeiris_mask(eyeiris_mask, eye_mask)
+
+        # Should correctly combine the masks
+        assert result.dtype == np.float32
+        # Iris should be limited to eye region
+        assert result[50, 50] > 0.9  # Inside both masks
+        assert result[45, 45] > 0.9  # Inside both masks

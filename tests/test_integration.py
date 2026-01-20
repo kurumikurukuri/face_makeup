@@ -8,8 +8,8 @@ import glob
 import os
 import tempfile
 
-from src.face_makeup.processor import MakeupProcessor, ProcessorConfig
-from src.face_makeup.core.types import (
+from face_makeup.processor import MakeupProcessor, ProcessorConfig
+from face_makeup.core.types import (
     LipsParams,
     CheekParams,
     EyeShadowParams,
@@ -56,6 +56,7 @@ class TestEndToEndWorkflow:
         face.cheek(color=(255, 180, 180), opacity=0.3)
         face.eyelid(color=(180, 130, 150), opacity=0.3)
         face.eyeliner(color=(0, 0, 0), opacity=0.8)
+        face.eyeiris(color=(100, 150, 255), opacity=0.5)
 
         # Render
         result = ctx.render()
@@ -146,10 +147,11 @@ class TestFluentAPIChaining:
             .eyelid(color=(180, 130, 150), opacity=0.3, side='both')
             .eyelid_edge(color=(150, 100, 120), opacity=0.2, side='both')
             .eyeliner(color=(0, 0, 0), opacity=0.8, side='both')
+            .eyeiris(color=(100, 150, 255), opacity=0.5, side='both')
         )
 
         assert result is ctx.faces[0]
-        assert len(ctx.faces[0].makeup_layers) >= 5
+        assert len(ctx.faces[0].makeup_layers) >= 7
 
     def test_chain_with_params_objects(self, processor, test_image):
         """Test chaining with parameter objects."""
@@ -163,8 +165,7 @@ class TestFluentAPIChaining:
             color_params=ColorParams(target_rgb=(255, 180, 180)),
             opacity=0.3,
             center=(0.0, 0.0),
-            radius=(0.6, 0.5),
-            falloff=0.4
+            radius=(0.6, 0.5)
         )
 
         result = ctx.faces[0].lip(lip_params).cheek(cheek_params)
@@ -237,6 +238,13 @@ class TestMakeupLayerCombinations:
         """Test eyeliner makeup only."""
         ctx = processor.open(test_image)
         ctx.faces[0].eyeliner(color=(0, 0, 0), opacity=0.8)
+        result = ctx.render()
+        assert not np.array_equal(result, test_image)
+
+    def test_eyeiris_only(self, processor, test_image):
+        """Test eye iris makeup only."""
+        ctx = processor.open(test_image)
+        ctx.faces[0].eyeiris(color=(100, 150, 255), opacity=0.5)
         result = ctx.render()
         assert not np.array_equal(result, test_image)
 

@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING, List, Optional
 import cv2
 import numpy as np
 
-from src.face_makeup.face import Face
-from src.face_makeup.renderer import Renderer
+from face_makeup.face import Face
+from face_makeup.renderer import Renderer
 
 if TYPE_CHECKING:
-    from src.face_makeup.processor import MakeupProcessor
+    from face_makeup.processor import MakeupProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class ImageContext:
         # Create renderer with debug visualizer if needed
         visualizer = None
         if debug:
-            from src.face_makeup.core.debug_visualizer import DebugVisualizer
+            from face_makeup.core.debug_visualizer import DebugVisualizer
             visualizer = DebugVisualizer()
 
         renderer = Renderer(
@@ -142,16 +142,14 @@ class ImageContext:
     def save(
         self,
         path: str,
-        debug: bool = False,
-        debug_dir: Optional[str] = None
+        debug: bool = False
     ) -> None:
         """
         Save rendered image to file.
 
         Args:
             path: Output file path.
-            debug: If True, save debug images to debug_dir.
-            debug_dir: Directory for debug images (default: outputs/debug).
+            debug: If True, save debug images to outputs/debug/.
         """
         result = self.render(debug=debug)
 

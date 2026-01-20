@@ -6,6 +6,7 @@ Not exposed in public API - used by ImageContext.
 """
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional
@@ -13,18 +14,20 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 import cv2
 import numpy as np
 
-from src.face_makeup.core.segmenter import FaceSegmenter
-from src.face_makeup.core.makeup_blender import MakeupBlender
-from src.face_makeup.core.types import (
+from face_makeup.core.segmenter import FaceSegmenter
+from face_makeup.core.makeup_blender import MakeupBlender
+from face_makeup.core.types import (
     LipsParams,
     CheekParams,
     EyeShadowParams,
-    EyeLinerParams
+    EyeLinerParams,
+    EyeIrisParams,
+    PARAMS_PRIORITY
 )
 
 if TYPE_CHECKING:
-    from src.face_makeup.face import Face, MakeupLayer, CheekLayer
-    from src.face_makeup.core.debug_visualizer import DebugVisualizer
+    from face_makeup.face import Face, MakeupLayer
+    from face_makeup.core.debug_visualizer import DebugVisualizer
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +83,11 @@ class Renderer:
         session_id = session_id or self._generate_session_id()
         face_session = f"{session_id}_face{face.face_id}"
 
+        # Work on shallow copies to avoid mutating Face internal state
+        layers = [copy.copy(layer) for layer in face.makeup_layers]
+
         # Get unique part names from layers
-        part_names = list(set(layer.part_name for layer in face.makeup_layers))
+        part_names = list(set(layer.part_name for layer in layers))
 
         # Generate hard masks
         hard_masks = self._generate_masks(image.shape[:2], face, part_names)
@@ -89,24 +95,46 @@ class Renderer:
         if debug and self._visualizer:
             self._visualizer.save_masks(image, hard_masks, face_session, "hard")
 
-        # Refine masks to soft masks
-        soft_masks = self._refine_masks(image, hard_masks, face)
+        # Assign masks to layers (float32 conversion only, blur applied in blend)
+        for layer in layers:
+            if layer.part_name in hard_masks:
+                hard_mask = hard_masks[layer.part_name]
+                layer.mask = hard_mask.astype(np.float32) / 255.0
+
+        # Resolve overlaps by type priority
+        self._resolve_overlaps(layers)
 
         if debug and self._visualizer:
+            # Create soft_masks dict for debug visualization
+            soft_masks = {layer.part_name: layer.mask for layer in layers if layer.mask is not None}
             self._visualizer.save_masks(image, soft_masks, face_session, "soft")
 
         # Apply each layer
         result = image.copy()
-        for layer in face.makeup_layers:
-            if layer.part_name not in soft_masks:
+        for layer in layers:
+            if layer.mask is None:
                 logger.warning(f"No mask for part: {layer.part_name}")
                 continue
 
-            mask = soft_masks[layer.part_name]
-            result = self._apply_layer(result, mask, layer, face)
+            result = self._apply_layer(result, layer.mask, layer, face)
 
             if debug and self._visualizer:
                 logger.debug(f"Applied layer: {layer.part_name}")
+
+                # Save cheek 3D debug visualization
+                if isinstance(layer.params, CheekParams):
+                    # Use getattr to avoid circular import of CheekLayer
+                    cheek_side = getattr(layer, 'cheek_side', 'left')
+                    self._visualizer.save_cheek_3d_debug(
+                        image=image,
+                        soft_mask=layer.mask,
+                        params=layer.params,
+                        landmarks=face.landmarks,
+                        segmenter=self._segmenter,
+                        part_name=layer.part_name,
+                        cheek_side=cheek_side,
+                        session_id=face_session
+                    )
 
         return result
 
@@ -175,39 +203,50 @@ class Renderer:
             parts
         )
 
-    def _refine_masks(
-        self,
-        image: np.ndarray,
-        hard_masks: Dict[str, np.ndarray],
-        face: Face
-    ) -> Dict[str, np.ndarray]:
+    def _resolve_overlaps(self, layers: List[MakeupLayer]) -> None:
         """
-        Refine hard masks to soft masks.
+        Resolve mask overlaps based on PartParams type priority.
+
+        Same PartParams type layers are allowed to overlap.
+        Different type layers are resolved by priority (higher priority wins).
 
         Args:
-            image: Original image.
-            hard_masks: Dictionary of hard masks.
-            face: Face.
-
-        Returns:
-            Dictionary of part_name -> soft mask (float32 0-1).
+            layers: List of MakeupLayer with masks already assigned.
+                    Modified in-place.
         """
-        img_short_side = min(image.shape[:2])
-        soft_masks = {}
+        # Filter layers with masks
+        layers_with_masks = [l for l in layers if l.mask is not None]
+        if not layers_with_masks:
+            return
 
-        for part_name, hard_mask in hard_masks.items():
-            # Apply Gaussian blur refinement (inlined from MaskRefiner)
-            blur_strength = 0.02
-            kernel_size = int(img_short_side * blur_strength)
-            if kernel_size % 2 == 0:
-                kernel_size += 1
-            kernel_size = max(3, kernel_size)
-            blurred = cv2.GaussianBlur(hard_mask, (kernel_size, kernel_size), 0)
-            soft_mask = blurred.astype(np.float32) / 255.0
+        h, w = layers_with_masks[0].mask.shape[:2]
 
-            soft_masks[part_name] = soft_mask
+        # Sort by priority (process HIGH priority first)
+        sorted_layers = sorted(
+            layers_with_masks,
+            key=lambda l: PARAMS_PRIORITY.get(type(l.params), 0),
+            reverse=True
+        )
 
-        return soft_masks
+        # Track used masks per type (category)
+        # Higher priority types are processed first, so their masks are recorded
+        type_used_masks: Dict[type, np.ndarray] = {}
+
+        for layer in sorted_layers:
+            params_type = type(layer.params)
+
+            # Subtract masks from higher priority types (already processed)
+            # Same type overlap is OK (don't subtract from same type)
+            for other_type, used_mask in type_used_masks.items():
+                if other_type != params_type:
+                    layer.mask = np.clip(layer.mask - used_mask, 0, 1)
+
+            # Update used mask for this type
+            if params_type not in type_used_masks:
+                type_used_masks[params_type] = np.zeros((h, w), dtype=np.float32)
+            type_used_masks[params_type] = np.maximum(
+                type_used_masks[params_type], layer.mask
+            )
 
     def _apply_layer(
         self,
@@ -234,15 +273,15 @@ class Renderer:
             return self._blender.blend_lips(image, mask, params)
 
         if isinstance(params, CheekParams):
-            # Import here to avoid circular dependency
-            from src.face_makeup.face import CheekLayer
-            cheek_side = 'left'
-            if isinstance(layer, CheekLayer):
-                cheek_side = layer.cheek_side
-            return self._blender.blend_cheek(
-                image, mask, params,
+            # Use getattr to avoid circular import of CheekLayer
+            cheek_side = getattr(layer, 'cheek_side', 'left')
+            cheek_mask = self._segmenter.create_cheek_mask(
+                image.shape[:2], mask, params,
                 landmarks=face.landmarks,
                 cheek_side=cheek_side
+            )
+            return self._blender.blend_cheek(
+                image, mask, cheek_mask, params
             )
 
         if isinstance(params, EyeShadowParams):
@@ -250,6 +289,24 @@ class Renderer:
 
         if isinstance(params, EyeLinerParams):
             return self._blender.blend_eyeliner(image, mask, params)
+
+        if isinstance(params, EyeIrisParams):
+            # eyeiris mask (already float32 from render_face)
+            eyeiris_mask = mask
+
+            # Generate eye mask for constraining iris to eye region
+            eye_part = layer.part_name.replace('eyeiris_', 'eye_')
+            eye_masks = self._segmenter.segment(
+                image.shape[:2],
+                face.landmarks,
+                [eye_part]
+            )
+            eye_mask = eye_masks.get(eye_part)
+            if eye_mask is None:
+                raise ValueError(f"Failed to generate eye mask for '{eye_part}'")
+            eye_mask_soft = eye_mask.astype(np.float32) / 255.0 if eye_mask.dtype == np.uint8 else eye_mask
+
+            return self._blender.blend_eyeiris(image, eyeiris_mask, eye_mask_soft, params)
 
         # Default blending
         return self._blender.blend(

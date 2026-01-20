@@ -6,8 +6,8 @@ import numpy as np
 import cv2
 import glob
 
-from src.face_makeup.processor import MakeupProcessor, ProcessorConfig
-from src.face_makeup.core.types import ColorParams, LipsParams
+from face_makeup.processor import MakeupProcessor, ProcessorConfig
+from face_makeup.core.types import ColorParams, LipsParams
 
 
 @pytest.fixture

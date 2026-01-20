@@ -6,16 +6,17 @@ import numpy as np
 import cv2
 import glob
 
-from src.face_makeup.processor import MakeupProcessor
-from src.face_makeup.face import Face, LipLayer, CheekLayer, EyeShadowLayer, EyeLinerLayer
-from src.face_makeup.core.types import (
+from face_makeup.processor import MakeupProcessor
+from face_makeup.face import Face, LipLayer, CheekLayer, EyeShadowLayer, EyeLinerLayer,EyeIrisLayer
+from face_makeup.core.types import (
     LipsParams,
     CheekParams,
     EyeShadowParams,
     EyeLinerParams,
     ColorParams,
+    EyeIrisParams,
+    PartParams
 )
-
 @pytest.fixture
 def processor():
     """MakeupProcessor instance."""
@@ -84,7 +85,6 @@ class TestFaceFluentAPI:
             opacity=0.5,
             center=(0.0, 0.0),
             radius=(0.4, 0.2),
-            falloff=0.4
         )
         result = face.cheek(params)
         assert result is face
@@ -109,7 +109,6 @@ class TestFaceFluentAPI:
             opacity=0.5,
             center=(0.0, 0.0),
             radius=(0.4, 0.2),
-            falloff=0.4
         )
         eye_params = EyeShadowParams(
             color_params=ColorParams(target_rgb=(180, 130, 150)),
@@ -143,7 +142,6 @@ class TestFaceMakeupLayers:
             opacity=0.5,
             center=(0.0, 0.0),
             radius=(0.4, 0.2),
-            falloff=0.4
         )
         face.cheek(params, side='both')
 
@@ -161,7 +159,6 @@ class TestFaceMakeupLayers:
             opacity=0.5,
             center=(0.0, 0.0),
             radius=(0.4, 0.2),
-            falloff=0.4
         )
         face.cheek(params, side='left')
 
@@ -179,6 +176,7 @@ class TestFaceMakeupLayers:
 
         layers = face.makeup_layers
         assert len(layers) == 2
+        assert all(isinstance(l, EyeShadowLayer) for l in layers)
         part_names = [l.part_name for l in layers]
         assert 'eyelid_left' in part_names
         assert 'eyelid_right' in part_names
@@ -220,7 +218,43 @@ class TestFaceMakeupLayers:
             thickness=2
         )
         result = face.eyeliner(params)
+        assert result is face  
+
+    def test_eyeiris_returns_self(self, face):
+        """Test that eyeiris() returns self."""
+        params = EyeIrisParams(
+            color_params=ColorParams(target_rgb=(100, 150, 255)),
+            opacity=0.5
+        )
+        result = face.eyeiris(params)
         assert result is face
+
+    def test_eyeiris_both_adds_two_layers(self, face):
+        """Test that eyeiris(side='both') adds two layers."""
+        params = EyeIrisParams(
+            color_params=ColorParams(target_rgb=(100, 150, 255)),
+            opacity=0.5
+        )
+        face.eyeiris(params, side='both')
+
+        layers = face.makeup_layers
+        assert len(layers) == 2
+        assert all(isinstance(l, EyeIrisLayer) for l in layers)
+        part_names = [l.part_name for l in layers]
+        assert 'eyeiris_left' in part_names
+        assert 'eyeiris_right' in part_names
+
+    def test_eyeiris_left_adds_one_layer(self, face):
+        """Test that eyeiris(side='left') adds one layer."""
+        params = EyeIrisParams(
+            color_params=ColorParams(target_rgb=(100, 150, 255)),
+            opacity=0.5
+        )
+        face.eyeiris(params, side='left')
+
+        layers = face.makeup_layers
+        assert len(layers) == 1
+        assert layers[0].part_name == 'eyeiris_left'     
 
     def test_clear_removes_all_layers(self, face):
         """Test that clear() removes all layers."""
@@ -361,3 +395,123 @@ class TestOpacityValidation:
         """Test that integer opacity (0 or 1) is accepted."""
         face.lip(color=(255, 100, 100), opacity=1)
         assert len(face.makeup_layers) == 1
+
+
+class TestBlurStrengthValidation:
+    """Tests for blur_strength parameter validation."""
+
+    def test_lip_invalid_blur_strength_too_high(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.lip(color=(255, 100, 100), blur_strength=1.5)
+
+    def test_lip_invalid_blur_strength_negative(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.lip(color=(255, 100, 100), blur_strength=-0.1)
+
+    def test_lip_invalid_blur_strength_string(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.lip(color=(255, 100, 100), blur_strength="0.5")
+
+    def test_cheek_invalid_blur_strength(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.cheek(color=(255, 180, 180), blur_strength=2.0)
+
+    def test_eyelid_invalid_blur_strength(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.eyelid(color=(180, 130, 150), blur_strength=-1.0)
+
+    def test_eyelid_edge_invalid_blur_strength(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.eyelid_edge(color=(245, 41, 41), blur_strength=1.1)
+
+    def test_eyeliner_invalid_blur_strength(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.eyeliner(color=(0, 0, 0), blur_strength=5.0)
+
+    def test_eyeiris_invalid_blur_strength(self, face):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            face.eyeiris(color=(100, 150, 255), blur_strength=-0.5)
+
+    def test_valid_blur_strength_boundary_zero(self, face):
+        face.lip(color=(255, 100, 100), blur_strength=0.0)
+        assert len(face.makeup_layers) == 1
+
+    def test_valid_blur_strength_boundary_one(self, face):
+        face.lip(color=(255, 100, 100), blur_strength=1.0)
+        assert len(face.makeup_layers) == 1
+
+    def test_valid_blur_strength_integer(self, face):
+        face.lip(color=(255, 100, 100), blur_strength=1)
+        assert len(face.makeup_layers) == 1
+
+
+class TestPartParamsValidation:
+    """Tests for PartParams base class __post_init__ validation."""
+
+    def test_invalid_opacity_via_dataclass(self):
+        with pytest.raises(ValueError, match="opacity must be"):
+            LipsParams(
+                color_params=ColorParams(target_rgb=(255, 100, 100)),
+                opacity=1.5
+            )
+
+    def test_invalid_blur_strength_via_dataclass(self):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            LipsParams(
+                color_params=ColorParams(target_rgb=(255, 100, 100)),
+                opacity=0.5,
+                blur_strength=2.0
+            )
+
+    def test_negative_opacity_via_dataclass(self):
+        with pytest.raises(ValueError, match="opacity must be"):
+            EyeShadowParams(
+                color_params=ColorParams(target_rgb=(180, 130, 150)),
+                opacity=-0.1
+            )
+
+    def test_negative_blur_strength_via_dataclass(self):
+        with pytest.raises(ValueError, match="blur_strength must be"):
+            CheekParams(
+                color_params=ColorParams(target_rgb=(255, 180, 180)),
+                opacity=0.3,
+                blur_strength=-0.5,
+                center=(0.0, 0.0),
+                radius=(0.5, 0.5)
+            )
+
+
+class TestEyeLinerParamsValidation:
+    """Tests for EyeLinerParams thickness validation."""
+
+    def test_thickness_zero_rejected(self):
+        with pytest.raises(ValueError, match="thickness must be a positive integer"):
+            EyeLinerParams(
+                color_params=ColorParams(target_rgb=(0, 0, 0)),
+                opacity=1.0,
+                thickness=0
+            )
+
+    def test_thickness_negative_rejected(self):
+        with pytest.raises(ValueError, match="thickness must be a positive integer"):
+            EyeLinerParams(
+                color_params=ColorParams(target_rgb=(0, 0, 0)),
+                opacity=1.0,
+                thickness=-1
+            )
+
+    def test_thickness_float_rejected(self):
+        with pytest.raises(ValueError, match="thickness must be a positive integer"):
+            EyeLinerParams(
+                color_params=ColorParams(target_rgb=(0, 0, 0)),
+                opacity=1.0,
+                thickness=1.5
+            )
+
+    def test_thickness_valid(self):
+        params = EyeLinerParams(
+            color_params=ColorParams(target_rgb=(0, 0, 0)),
+            opacity=1.0,
+            thickness=3
+        )
+        assert params.thickness == 3

@@ -2,14 +2,15 @@
 Tests for ImageContext class.
 """
 import pytest
+from unittest import mock
 import numpy as np
 import cv2
 import glob
 import os
 import tempfile
 
-from src.face_makeup.processor import MakeupProcessor
-from src.face_makeup.core.types import LipsParams, ColorParams
+from face_makeup.processor import MakeupProcessor
+from face_makeup.core.types import LipsParams, ColorParams
 
 
 @pytest.fixture
@@ -152,3 +153,33 @@ class TestImageContextSave:
         finally:
             if os.path.exists(output_path):
                 os.unlink(output_path)
+
+
+class TestImageContextShow:
+    """Tests for ImageContext.show() method."""
+
+    def test_show_calls_cv2_functions(self, context):
+        """Test that show() calls cv2.imshow and cv2.waitKey."""
+        with mock.patch('cv2.imshow') as mock_imshow, \
+             mock.patch('cv2.waitKey') as mock_waitkey:
+
+            context.faces[0].lip(color=(255, 100, 100), opacity=0.5)
+            context.show(window_name="test_window", wait_key=1)
+
+            mock_imshow.assert_called_once()
+            # Verify window name is passed
+            assert mock_imshow.call_args[0][0] == "test_window"
+            mock_waitkey.assert_called_once_with(1)
+
+    def test_show_default_parameters(self, context):
+        """Test show() with default parameters."""
+        with mock.patch('cv2.imshow') as mock_imshow, \
+             mock.patch('cv2.waitKey') as mock_waitkey:
+
+            context.show()
+
+            mock_imshow.assert_called_once()
+            # Default window name is "preview"
+            assert mock_imshow.call_args[0][0] == "preview"
+            # Default wait_key is 0
+            mock_waitkey.assert_called_once_with(0)

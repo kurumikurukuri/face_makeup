@@ -12,7 +12,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from .types import FaceBBox, FaceLandmarks, CheekParams
-    from .makeup_blender import MakeupBlender
+    from .segmenter import FaceSegmenter
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ class DebugVisualizer:
         soft_mask: np.ndarray,
         params: "CheekParams",
         landmarks: "FaceLandmarks",
-        blender: "MakeupBlender",
+        segmenter: "FaceSegmenter",
         part_name: str,
         cheek_side: str,
         session_id: str
@@ -158,13 +158,13 @@ class DebugVisualizer:
             soft_mask: Soft mask for the cheek.
             params: Cheek parameters.
             landmarks: Facial landmarks with 3D coordinates.
-            blender: MakeupBlender instance for mask generation.
+            segmenter: FaceSegmenter instance for mask generation.
             part_name: Name of the part (e.g., 'cheek_left').
             cheek_side: 'left' or 'right'.
             session_id: Session identifier.
         """
         # Get ellipse mask with debug info
-        result = blender._create_ellipse_mask(
+        result = segmenter.create_cheek_mask(
             image.shape[:2],
             soft_mask,
             params,
@@ -176,21 +176,14 @@ class DebugVisualizer:
         if not isinstance(result, tuple):
             return
 
-        ellipse_mask, debug_info = result
-        self._draw_cheek_debug_image(
-            image, debug_info, landmarks, part_name, cheek_side, session_id
-        )
+        cheek_mask, debug_info = result
+
         self._save_ellipse_mask_heatmap(
-            image, ellipse_mask, part_name, session_id
+            image, cheek_mask, part_name, session_id
         )
 
         # Additional coordinate visualizations
-        if 'p0' in debug_info:
-            self._save_coordinate_system(
-                image, debug_info, part_name, cheek_side, session_id
-            )
-
-        if 'cheek_local' in debug_info:
+        if 'cheek_tangent_uvw' in debug_info:
             self._save_uv_visualization(
                 image, debug_info, params, part_name, cheek_side, session_id
             )
@@ -206,63 +199,16 @@ class DebugVisualizer:
         cv2.imwrite(path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         logger.debug(f"Saved image: {path}")
 
-    def _draw_cheek_debug_image(
-        self,
-        image: np.ndarray,
-        debug_info: dict,
-        landmarks: "FaceLandmarks",
-        part_name: str,
-        cheek_side: str,
-        session_id: str
-    ) -> None:
-        """Draw comprehensive cheek debug visualization."""
-        h, w = image.shape[:2]
-        debug_image = image.copy()
-
-        cx = int(debug_info.get('cx', 0))
-        cy = int(debug_info.get('cy', 0))
-        rx = int(debug_info.get('rx', 0))
-        ry = int(debug_info.get('ry', 0))
-
-        # Draw ellipse center and boundary
-        cv2.circle(debug_image, (cx, cy), 8, (0, 255, 0), -1)
-        cv2.ellipse(debug_image, (cx, cy), (rx, ry), 0, 0, 360, (0, 255, 0), 2)
-
-        # Draw coordinate axes if available
-        if 'ex' in debug_info and 'ey' in debug_info:
-            ex = debug_info['ex']
-            ey = debug_info['ey']
-            scale = 50
-
-            ex_end = (int(cx + ex[0] * scale), int(cy + ex[1] * scale))
-            ey_end = (int(cx + ey[0] * scale), int(cy + ey[1] * scale))
-
-            cv2.arrowedLine(debug_image, (cx, cy), ex_end, (255, 0, 0), 2, tipLength=0.2)
-            cv2.arrowedLine(debug_image, (cx, cy), ey_end, (0, 128, 255), 2, tipLength=0.2)
-
-        # Draw info text
-        info_lines = [
-            f"Part: {part_name}",
-            f"Center: ({cx}, {cy})",
-            f"Radius: ({rx}, {ry})",
-        ]
-        self._draw_text_with_background(debug_image, info_lines, (10, 30))
-
-        path = os.path.join(
-            self.debug_dir,
-            f"{session_id}_4_cheek_3d_{part_name}.png"
-        )
-        cv2.imwrite(path, cv2.cvtColor(debug_image, cv2.COLOR_RGB2BGR))
 
     def _save_ellipse_mask_heatmap(
         self,
         image: np.ndarray,
-        ellipse_mask: np.ndarray,
+        cheek_mask: np.ndarray,
         part_name: str,
         session_id: str
     ) -> None:
         """Save ellipse mask as heatmap overlay."""
-        mask_vis = (ellipse_mask * 255).astype(np.uint8)
+        mask_vis = (cheek_mask * 255).astype(np.uint8)
         heatmap = cv2.applyColorMap(mask_vis, cv2.COLORMAP_JET)
         overlay = cv2.addWeighted(
             cv2.cvtColor(image, cv2.COLOR_RGB2BGR),
@@ -277,123 +223,261 @@ class DebugVisualizer:
         )
         cv2.imwrite(path, overlay)
 
-    def _save_coordinate_system(
-        self,
-        image: np.ndarray,
-        debug_info: dict,
-        part_name: str,
-        cheek_side: str,
-        session_id: str
-    ) -> None:
-        """Save coordinate system visualization."""
-        h, w = image.shape[:2]
-        viz = np.ones((h, w, 3), dtype=np.uint8) * 255
-        overlay = cv2.addWeighted(image, 0.3, viz, 0.7, 0)
-
-        p0 = debug_info['p0']
-        e_u = debug_info['e_u']
-        e_v = debug_info['e_v']
-        cx = int(debug_info['cx'])
-        cy = int(debug_info['cy'])
-
-        # Draw origin point
-        p0_2d = (int(p0[0] * w), int(p0[1] * h))
-        cv2.circle(overlay, p0_2d, 10, (0, 0, 255), -1)
-
-        # Draw basis vectors
-        scale = 0.05
-        p_u_end = (int((p0[0] + e_u[0] * scale) * w), int((p0[1] + e_u[1] * scale) * h))
-        p_v_end = (int((p0[0] + e_v[0] * scale) * w), int((p0[1] + e_v[1] * scale) * h))
-
-        cv2.arrowedLine(overlay, p0_2d, p_u_end, (255, 0, 0), 3, tipLength=0.2)
-        cv2.arrowedLine(overlay, p0_2d, p_v_end, (0, 0, 255), 3, tipLength=0.2)
-
-        # Draw ellipse center
-        cv2.circle(overlay, (cx, cy), 8, (0, 255, 0), -1)
-
-        path = os.path.join(
-            self.debug_dir,
-            f"{session_id}_4_cheek_3d_coords_{part_name}.png"
-        )
-        cv2.imwrite(path, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
-
     def _save_uv_visualization(
         self,
         image: np.ndarray,
         debug_info: dict,
-        params: "CheekParams",
+        params,
         part_name: str,
         cheek_side: str,
         session_id: str
     ) -> None:
-        """Save UV coordinate space visualization using matplotlib."""
+        """
+        Save comprehensive visualization of tangent plane coordinate system.
+
+        Coordinate Systems visualized:
+            - Image Space (img_px_): Pixel coordinates in the image
+            - Face 3D Space (face3d_): MediaPipe normalized 3D coordinates
+            - Tangent Plane Space (tangent_): Local UVW coordinate system
+                - U: horizontal direction on cheek surface
+                - V: vertical direction on cheek surface
+                - W: normal direction (perpendicular to UV plane)
+
+        Panels:
+            [left]     Image space with 3D-projected ellipse
+            [right]  3D view of tangent UVW space
+        """
         try:
             import matplotlib
-            matplotlib.use('Agg')
+            matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             from matplotlib.patches import Ellipse
         except ImportError:
-            logger.warning("matplotlib not available, skipping UV visualization")
             return
 
-        cheek_local = debug_info['cheek_local']
-        u_coords = cheek_local[:, 0]
-        v_coords = cheek_local[:, 1]
+        # =================================================================
+        # Extract data from debug_info
+        # =================================================================
 
-        fig, ax = plt.subplots(figsize=(8, 8))
+        # Cheek points in normalized image space (0-1)
+        cheek_img_norm = np.asarray(debug_info["cheek_img_norm"])
 
-        # Plot cheek landmarks in UV space
-        ax.scatter(u_coords, v_coords, c='blue', s=50, label='Cheek landmarks')
+        # Cheek points in tangent UVW space (N,3)
+        cheek_tangent_uvw = np.asarray(debug_info["cheek_tangent_uvw"])
+        tangent_u_coords = cheek_tangent_uvw[:, 0]  # U coordinates in tangent space
+        tangent_v_coords = cheek_tangent_uvw[:, 1]  # V coordinates in tangent space
+        tangent_w_coords = cheek_tangent_uvw[:, 2]  # W coordinates in tangent space
 
-        # Plot ellipse
-        u0 = debug_info.get('u0', 0)
-        v0 = debug_info.get('v0', 0)
-        a = debug_info.get('a', 0.1)
-        b = debug_info.get('b', 0.1)
+        # Tangent plane basis vectors (in Face 3D space)
+        tangent_origin_face3d = np.asarray(debug_info["tangent_origin_face3d"])
+        tangent_basis_u = np.asarray(debug_info["tangent_basis_u"])
+        tangent_basis_v = np.asarray(debug_info["tangent_basis_v"])
+        tangent_basis_w = np.asarray(debug_info["tangent_basis_w"])
 
-        ellipse = Ellipse(
-            (u0, v0), 2 * a, 2 * b,
-            fill=False, edgecolor='green', linewidth=2, label='Ellipse'
+
+        # Surface fitting coefficients
+        surface_coeffs = np.asarray(debug_info["surface_coeffs"])
+
+        # Ellipse boundary points in Face 3D space
+        ellipse_face3d_points = np.asarray(debug_info["ellipse_face3d_points"])
+
+        img_height, img_width = image.shape[:2]
+        cheek_img_px = np.column_stack([
+            cheek_img_norm[:, 0] * img_width,
+            cheek_img_norm[:, 1] * img_height
+        ])
+
+        bbox_x_min, bbox_y_min = cheek_img_px.min(axis=0)
+        bbox_x_max, bbox_y_max = cheek_img_px.max(axis=0)
+
+        margin_ratio = 0.25
+        margin_x = (bbox_x_max - bbox_x_min) * margin_ratio
+        margin_y = (bbox_y_max - bbox_y_min) * margin_ratio
+
+        bbox_x_min -= margin_x
+        bbox_x_max += margin_x
+        bbox_y_min -= margin_y
+        bbox_y_max += margin_y
+
+        bbox_x_min = max(0, bbox_x_min)
+        bbox_y_min = max(0, bbox_y_min)
+        bbox_x_max = min(img_width, bbox_x_max)
+        bbox_y_max = min(img_height, bbox_y_max)
+
+        point_colors = plt.get_cmap("tab10")(np.arange(len(tangent_u_coords)) % 10)
+
+        # ===== 2x2 grid only =====
+        fig = plt.figure(figsize=(12, 8))
+        gs = fig.add_gridspec(1, 2)
+
+        # ==========================
+        # left : Image Space (3D-projected ellipse)
+        # ==========================
+        ax_img_3d_proj = fig.add_subplot(gs[0, 0])
+        ax_img_3d_proj.imshow(image)
+
+        ellipse_img_px_from_face3d = np.column_stack([
+            ellipse_face3d_points[:, 0] * img_width,
+            ellipse_face3d_points[:, 1] * img_height
+        ])
+
+        origin_img_px = np.array([
+            tangent_origin_face3d[0] * img_width,
+            tangent_origin_face3d[1] * img_height
+        ])
+
+        axis_scale = max(bbox_x_max - bbox_x_min, bbox_y_max - bbox_y_min) * 0.01
+
+        u_axis_img_px = np.array([
+            (tangent_origin_face3d + tangent_basis_u * axis_scale)[0] * img_width,
+            (tangent_origin_face3d + tangent_basis_u * axis_scale)[1] * img_height
+        ]) - origin_img_px
+
+        v_axis_img_px = np.array([
+            (tangent_origin_face3d + tangent_basis_v * axis_scale)[0] * img_width,
+            (tangent_origin_face3d + tangent_basis_v * axis_scale)[1] * img_height
+        ]) - origin_img_px
+
+        ax_img_3d_proj.arrow(
+            origin_img_px[0], origin_img_px[1],
+            u_axis_img_px[0], u_axis_img_px[1],
+            color="r", width=1.5, length_includes_head=True
         )
-        ax.add_patch(ellipse)
-        ax.plot(u0, v0, 'go', markersize=10, label='Ellipse center')
+        ax_img_3d_proj.arrow(
+            origin_img_px[0], origin_img_px[1],
+            v_axis_img_px[0], v_axis_img_px[1],
+            color="g", width=1.5, length_includes_head=True
+        )
 
-        ax.axhline(0, color='gray', linestyle='--', alpha=0.5)
-        ax.axvline(0, color='gray', linestyle='--', alpha=0.5)
-        ax.set_xlabel('u (local coordinate)')
-        ax.set_ylabel('v (local coordinate)')
-        ax.set_title(f'UV Space - {part_name} ({cheek_side})')
-        ax.legend()
-        ax.set_aspect('equal')
-        ax.grid(True, alpha=0.3)
+        for i, ((x, y), c) in enumerate(zip(cheek_img_px, point_colors)):
+            ax_img_3d_proj.scatter(x, y, s=1, color=c, edgecolor="black")
+            ax_img_3d_proj.text(x + 4, y + 4, str(i), color="white", fontsize=11, weight="bold")
 
+        ax_img_3d_proj.plot(
+            ellipse_img_px_from_face3d[:, 0],
+            ellipse_img_px_from_face3d[:, 1],
+            color="lime",
+            linewidth=2
+        )
+
+        ax_img_3d_proj.set_title("Image Space (Face3D-projected ellipse)")
+        ax_img_3d_proj.set_xlim(bbox_x_min, bbox_x_max)
+        ax_img_3d_proj.set_ylim(bbox_y_max, bbox_y_min)
+        ax_img_3d_proj.set_aspect("equal")
+        ax_img_3d_proj.grid(True, alpha=0.3)
+
+        # ==========================
+        # right : Tangent UVW Space (3D view)
+        # ==========================
+        ax_3d = fig.add_subplot(gs[0, 1], projection="3d")
+
+        # Reconstruct 3D points from UVW
+        cheek_face3d_reconstructed = (
+            tangent_origin_face3d[None]
+            + tangent_u_coords[:, None] * tangent_basis_u[None]
+            + tangent_v_coords[:, None] * tangent_basis_v[None]
+            + tangent_w_coords[:, None] * tangent_basis_w[None]
+        )
+
+        # Plot reconstructed points
+        ax_3d.scatter(
+            cheek_face3d_reconstructed[:, 0],
+            cheek_face3d_reconstructed[:, 1],
+            cheek_face3d_reconstructed[:, 2],
+            c=point_colors, s=40
+        )
+
+        # Plot tangent surface (semi-transparent)
+        tangent_u_grid = np.linspace(tangent_u_coords.min(), tangent_u_coords.max(), 25)
+        tangent_v_grid = np.linspace(tangent_v_coords.min(), tangent_v_coords.max(), 25)
+        tangent_u_mesh, tangent_v_mesh = np.meshgrid(tangent_u_grid, tangent_v_grid)
+
+        tangent_w_mesh = (
+            surface_coeffs[0]
+            + surface_coeffs[1] * tangent_u_mesh + surface_coeffs[2] * tangent_v_mesh
+            + surface_coeffs[3] * tangent_u_mesh ** 2 + surface_coeffs[4] * tangent_v_mesh ** 2
+            + surface_coeffs[5] * tangent_u_mesh * tangent_v_mesh
+        )
+
+        surface_face3d = (
+            tangent_origin_face3d[None, None]
+            + tangent_u_mesh[..., None] * tangent_basis_u
+            + tangent_v_mesh[..., None] * tangent_basis_v
+            + tangent_w_mesh[..., None] * tangent_basis_w
+        )
+
+        ax_3d.plot_surface(
+            surface_face3d[..., 0],
+            surface_face3d[..., 1],
+            surface_face3d[..., 2],
+            alpha=0.35,
+            rstride=1,
+            cstride=1,
+            linewidth=0,
+            antialiased=True
+        )
+
+        # Plot ellipse on surface (thick green line)
+        ax_3d.plot(
+            ellipse_face3d_points[:, 0],
+            ellipse_face3d_points[:, 1],
+            ellipse_face3d_points[:, 2],
+            color="green", linewidth=2.5
+        )
+
+        # --------------------
+        # Plot UVW basis vectors
+        # --------------------
+        origin = tangent_origin_face3d
+        scale = max(tangent_u_coords.max()-tangent_u_coords.min(),
+                    tangent_v_coords.max()-tangent_v_coords.min()) * 0.1
+
+        ax_3d.quiver(
+            origin[0], origin[1], origin[2],
+            tangent_basis_u[0], tangent_basis_u[1], tangent_basis_u[2],
+            length=scale, color="r", normalize=True
+        )
+        ax_3d.quiver(
+            origin[0], origin[1], origin[2],
+            tangent_basis_v[0], tangent_basis_v[1], tangent_basis_v[2],
+            length=scale, color="g", normalize=True
+        )
+        ax_3d.quiver(
+            origin[0], origin[1], origin[2],
+            tangent_basis_w[0], tangent_basis_w[1], tangent_basis_w[2],
+            length=scale, color="b", normalize=True
+        )
+
+        # --------------------
+        # Labels
+        # --------------------
+        ax_3d.text(origin[0] + tangent_basis_u[0]*scale,
+                   origin[1] + tangent_basis_u[1]*scale,
+                   origin[2] + tangent_basis_u[2]*scale, "U", color="r", fontsize=12)
+
+        ax_3d.text(origin[0] + tangent_basis_v[0]*scale,
+                   origin[1] + tangent_basis_v[1]*scale,
+                   origin[2] + tangent_basis_v[2]*scale, "V", color="g", fontsize=12)
+
+        ax_3d.text(origin[0] + tangent_basis_w[0]*scale,
+                   origin[1] + tangent_basis_w[1]*scale,
+                   origin[2] + tangent_basis_w[2]*scale, "W", color="b", fontsize=12)
+
+        # --------------------
+        # Fixed camera view
+        # --------------------
+        ax_3d.view_init(elev=20, azim=135)
+
+        ax_3d.set_title("Tangent UVW Space (3D view)")
+        ax_3d.set_box_aspect([1, 1, 1])
+        ax_3d.grid(True, alpha=0.3)
+
+
+        # ---------- save ----------
         path = os.path.join(
             self.debug_dir,
-            f"{session_id}_4_cheek_3d_uv_{part_name}.png"
+            f"{session_id}_4_cheek_3d_uv_full_{part_name}.png"
         )
-        plt.savefig(path, dpi=150, bbox_inches='tight')
+        plt.tight_layout()
+        plt.savefig(path, dpi=150)
         plt.close()
-
-    def _draw_text_with_background(
-        self,
-        image: np.ndarray,
-        lines: list,
-        position: tuple,
-        font_scale: float = 0.5
-    ) -> None:
-        """Draw text with black outline for visibility."""
-        x, y = position
-        for i, line in enumerate(lines):
-            pos = (x, y + i * 25)
-            # Black outline
-            cv2.putText(
-                image, line, pos,
-                cv2.FONT_HERSHEY_SIMPLEX, font_scale,
-                (0, 0, 0), 3, cv2.LINE_AA
-            )
-            # White text
-            cv2.putText(
-                image, line, pos,
-                cv2.FONT_HERSHEY_SIMPLEX, font_scale,
-                (255, 255, 255), 1, cv2.LINE_AA
-            )

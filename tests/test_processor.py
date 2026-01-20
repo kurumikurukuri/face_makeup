@@ -7,7 +7,7 @@ import cv2
 import glob
 import os
 
-from src.face_makeup.processor import MakeupProcessor, ProcessorConfig
+from face_makeup.processor import MakeupProcessor, ProcessorConfig
 
 
 @pytest.fixture

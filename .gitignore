@@ -14,5 +14,6 @@ ENV/
 tests/test_images/*
 !tests/test_images/.gitkeep
 outputs/
-claude/
+.claude/
+.reports/
 tasks/

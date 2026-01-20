@@ -12,7 +12,7 @@ from .types import FaceLandmarks
 
 
 class LandmarkExtractor:
-    """MediaPipe Face Mesh を使用した顔ランドマーク抽出"""
+    """Facial landmark extraction using MediaPipe Face Mesh."""
 
     def __init__(self,
                  static_image_mode: bool = True,
@@ -22,11 +22,11 @@ class LandmarkExtractor:
                  min_tracking_confidence: float = 0.5):
         """
         Args:
-            static_image_mode: 静止画モード
-            max_num_faces: 最大検出顔数
-            refine_landmarks: ランドマークの精緻化（478点）
-            min_detection_confidence: 検出の信頼度閾値
-            min_tracking_confidence: トラッキングの信頼度閾値
+            static_image_mode: Static image mode.
+            max_num_faces: Maximum number of faces to detect.
+            refine_landmarks: Enable landmark refinement (478 points).
+            min_detection_confidence: Detection confidence threshold.
+            min_tracking_confidence: Tracking confidence threshold.
         """
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=static_image_mode,
@@ -38,16 +38,16 @@ class LandmarkExtractor:
 
     def extract(self, image: np.ndarray) -> FaceLandmarks:
         """
-        顔ランドマークを抽出
+        Extract facial landmarks.
 
         Args:
-            image: RGB uint8 (H, W, 3)
+            image: RGB uint8 (H, W, 3).
 
         Returns:
-            FaceLandmarks: 正規化座標 (468, 2) と 3D座標 (468, 3)
+            FaceLandmarks: Normalized coordinates (478, 2) and 3D coordinates (478, 3).
 
         Raises:
-            ValueError: ランドマークが検出されない場合
+            ValueError: If no landmarks are detected.
         """
         if image is None or image.size == 0:
             raise ValueError("Invalid image")
@@ -57,14 +57,14 @@ class LandmarkExtractor:
         if not results.multi_face_landmarks:
             raise ValueError("No landmarks detected")
 
-        # 最初の顔のランドマークを取得
+        # Get landmarks for the first face
         landmarks = results.multi_face_landmarks[0]
 
-        # 正規化座標 (x, y) を抽出
+        # Extract normalized coordinates (x, y)
         points = np.array([[lm.x, lm.y] for lm in landmarks.landmark],
                           dtype=np.float32)
 
-        # 正規化3D座標 (x, y, z) を抽出
+        # Extract normalized 3D coordinates (x, y, z)
         points_3d = np.array([[lm.x, lm.y, lm.z] for lm in landmarks.landmark],
                              dtype=np.float32)
 
@@ -111,6 +111,6 @@ class LandmarkExtractor:
         return landmarks_list
 
     def __del__(self):
-        """リソース解放"""
+        """Release resources."""
         if hasattr(self, 'face_mesh'):
             self.face_mesh.close()
