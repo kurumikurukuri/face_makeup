@@ -1,23 +1,11 @@
 """
 Tests for LandmarkExtractor class.
 """
-import glob
-
-import cv2
 import numpy as np
 import pytest
 
 from src.face_makeup.core.landmark_extractor import LandmarkExtractor
 from src.face_makeup.core.types import FaceLandmarks
-
-
-@pytest.fixture
-def test_image():
-    """Load first available test image as RGB."""
-    image_files = sorted(glob.glob("tests/test_images/*.png"))
-    assert len(image_files) > 0, "No test images found"
-    image = cv2.imread(image_files[0])
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 
 class TestLandmarkExtractorInit:

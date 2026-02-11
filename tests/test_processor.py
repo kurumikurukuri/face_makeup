@@ -4,7 +4,6 @@ Tests for MakeupProcessor class.
 import pytest
 import numpy as np
 import cv2
-import glob
 import os
 
 from face_makeup.processor import MakeupProcessor, ProcessorConfig
@@ -14,15 +13,6 @@ from face_makeup.processor import MakeupProcessor, ProcessorConfig
 def processor():
     """MakeupProcessor instance with default config."""
     return MakeupProcessor()
-
-
-@pytest.fixture
-def test_image():
-    """Load first test image."""
-    image_files = sorted(glob.glob("tests/test_images/*.png"))
-    assert len(image_files) > 0, "No test images found"
-    image = cv2.imread(image_files[0])
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 
 @pytest.fixture
@@ -99,12 +89,9 @@ class TestProcessorOpen:
 class TestProcessorOpenPath:
     """Tests for MakeupProcessor.open_path() method."""
 
-    def test_open_path_valid_file(self, processor):
+    def test_open_path_valid_file(self, processor, test_image_path):
         """Test opening a valid image file."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        assert len(image_files) > 0, "No test images found"
-
-        ctx = processor.open_path(image_files[0])
+        ctx = processor.open_path(test_image_path)
         assert ctx is not None
         assert ctx.face_count >= 1
 
@@ -124,20 +111,14 @@ class TestProcessorOpenPath:
         with pytest.raises((FileNotFoundError, ValueError)):
             processor.open_path("")
 
-    def test_open_path_relative_path(self, processor):
+    def test_open_path_relative_path(self, processor, test_image_path):
         """Test opening with relative path."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        assert len(image_files) > 0, "No test images found"
-
-        ctx = processor.open_path(image_files[0])
+        ctx = processor.open_path(test_image_path)
         assert ctx is not None
 
-    def test_open_path_absolute_path(self, processor):
+    def test_open_path_absolute_path(self, processor, test_image_path):
         """Test opening with absolute path."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        assert len(image_files) > 0, "No test images found"
-
-        abs_path = os.path.abspath(image_files[0])
+        abs_path = os.path.abspath(test_image_path)
         ctx = processor.open_path(abs_path)
         assert ctx is not None
 
@@ -145,13 +126,13 @@ class TestProcessorOpenPath:
 class TestProcessorReuse:
     """Tests for processor reusability."""
 
-    def test_processor_reuse_multiple_images(self, processor):
+    def test_processor_reuse_multiple_images(self, processor, test_images_dir):
         """Test that processor can process multiple images."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
+        image_files = sorted(test_images_dir.glob("*.png")) + sorted(test_images_dir.glob("*.jpg"))
 
         success_count = 0
         for img_path in image_files[:3]:  # Test first 3 images
-            image = cv2.imread(img_path)
+            image = cv2.imread(str(img_path))
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
             try:

@@ -181,8 +181,17 @@ with st.sidebar:
 
     st.markdown("---")
 
+    with st.expander("📖 使い方", expanded=True):  
+    # Usage instructions
+        st.markdown("""
+        1. 顔写真をアップロード
+        2. 各パラメータを調整（💋リップ、🌸チーク、👁️アイシャドウ、✏️アイライナー、👁️カラコン）
+        3. 「メイクを適用」ボタンをクリック
+        4. 結果を確認・ダウンロード
+        """)
+
     # Lips settings
-    with st.expander("💋 リップ", expanded=True):
+    with st.expander("💋 リップ", expanded=False):
         lips_enabled = st.checkbox(
             "リップを有効化",
             value=st.session_state.lips_enabled,
@@ -208,7 +217,7 @@ with st.sidebar:
             )
 
     # Cheek settings
-    with st.expander("🌸 チーク", expanded=True):
+    with st.expander("🌸 チーク", expanded=False):
         cheek_enabled = st.checkbox(
             "チークを有効化",
             value=st.session_state.cheek_enabled,
@@ -401,6 +410,15 @@ with st.sidebar:
         help="有効にすると outputs/debug/ にデバッグ画像を保存します"
     )
 
+    # Reset button
+    st.markdown("---")
+    if st.button("設定をリセット", use_container_width=True):
+        for key, default in _SESSION_DEFAULTS.items():
+            st.session_state[key] = default
+        if 'result_image' in st.session_state:
+            del st.session_state['result_image']
+        st.rerun()
+
     # Usage instructions
     st.markdown("---")
     st.subheader("📖 使い方")
@@ -421,34 +439,34 @@ st.markdown("**パラメータを調整して、オリジナルメイクを作�
 
 # Image input method selection
 input_method = st.radio(
-    "Select image input method",
-    ["File Upload", "Camera", "URL"],
+    "画像の入力方法を選択",
+    ["ファイルアップロード", "カメラ", "URL"],
     horizontal=True
 )
 uploaded_file = None
 camera_image = None
 url_image = None
 
-if input_method == "File Upload":
+if input_method == "ファイルアップロード":
     _accepted_types = ["png", "jpg", "jpeg", "webp"]
     if HEIF_SUPPORTED:
         _accepted_types.extend(["heic", "heif"])
     uploaded_file = st.file_uploader(
-        "Upload a face photo",
+        "顔写真をアップロード",
         type=_accepted_types,
-        help="Recommended: frontal face, resolution 256×256 ~ 2048×2048"
+        help="推奨: 正面の顔写真、解像度 256x256 ~ 2048x2048"
     )
-elif input_method == "Camera":
-    camera_image = st.camera_input("Take a photo")
+elif input_method == "カメラ":
+    camera_image = st.camera_input("写真を撮影")
 elif input_method == "URL":
     image_url = st.text_input(
-        "Enter image URL",
+        "画像のURLを入力",
         placeholder="https://example.com/image.jpg"
     )
-    if image_url and st.button("Load"):
+    if image_url and st.button("読み込む"):
         try:
             if not image_url.startswith(('http://', 'https://')):
-                st.error("Please enter a valid HTTP/HTTPS URL")
+                st.error("有効な HTTP/HTTPS URLを入力してください")
             else:
                 url_image = fetch_image_safe(image_url)
         except ValueError as e:
@@ -470,21 +488,24 @@ if image_source is not None:
         pil_image = pil_image.convert("RGB")
         image_np = np.array(pil_image)
 
-        st.info(f"Image size: {image_np.shape[1]} × {image_np.shape[0]} px")
-
         # Two column layout
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("Original")
+            st.subheader("オリジナル")
+            st.caption(f"画像サイズ: {image_np.shape[1]} x {image_np.shape[0]} px")
             st.image(pil_image, use_container_width=True)
 
         with col2:
-            st.subheader("With Makeup")
+            st.subheader("メイク後")
 
-        # Apply makeup button
-        if st.button("🎨 Apply Makeup", use_container_width=True, type="primary"):
-            with st.spinner("Applying makeup..."):
+        # Apply makeup button - centered
+        _btn_left, _btn_center, _btn_right = st.columns([1, 2, 1])
+        with _btn_center:
+            apply_clicked = st.button("メイクを適用", use_container_width=True, type="primary")
+
+        if apply_clicked:
+            with st.spinner("メイクを適用中..."):
                 try:
                     # Get processor (cached)
                     processor = get_processor()
@@ -503,7 +524,7 @@ if image_source is not None:
                     )
 
                     if not any_enabled:
-                        st.info("Please enable at least one makeup option")
+                        st.info("少なくとも1つのメイクオプションを有効にしてください")
                     else:
                         # Get the first face
                         face = ctx.faces[0]
@@ -570,7 +591,7 @@ if image_source is not None:
 
                         # Display face detection count info
                         if ctx.face_count > 1:
-                            st.info(f"Detected {ctx.face_count} faces. Makeup applied to first face only.")
+                            st.info(f"{ctx.face_count}つの顔を検出しました。最初の顔のみにメイクを適用しています。")
 
                 except ValueError as e:
                     st.error(f"無効な入力です: {str(e)}")
@@ -590,7 +611,7 @@ if image_source is not None:
                 buf.seek(0)
 
                 st.download_button(
-                    label="📥 Download Result",
+                    label="結果をダウンロード",
                     data=buf,
                     file_name=f"makeup_result_{st.session_state['session_id']}.png",
                     mime="image/png",
@@ -598,97 +619,77 @@ if image_source is not None:
                 )
 
                 # Current settings info
-                with st.expander("📊 Current Settings"):
+                with st.expander("現在の設定"):
                     if st.session_state.lips_enabled:
-                        st.write("**Lips**")
-                        st.write(f"- Color: {st.session_state.lips_color} {hex_to_rgb(st.session_state.lips_color)}")
-                        st.write(f"- Opacity: {st.session_state.lips_opacity}")
+                        st.write("**リップ**")
+                        st.write(f"- カラー: {st.session_state.lips_color} {hex_to_rgb(st.session_state.lips_color)}")
+                        st.write(f"- 不透明度: {st.session_state.lips_opacity}")
 
                     if st.session_state.cheek_enabled:
-                        st.write("**Cheek**")
-                        st.write(f"- Color: {st.session_state.cheek_color} {hex_to_rgb(st.session_state.cheek_color)}")
-                        st.write(f"- Opacity: {st.session_state.cheek_opacity}")
-                        st.write(f"- Center: ({st.session_state.cheek_center_x:.2f}, {st.session_state.cheek_center_y:.2f})")
-                        st.write(f"- Radius: ({st.session_state.cheek_radius_x:.2f}, {st.session_state.cheek_radius_y:.2f})")
-                        st.write(f"- Blur Strength: {st.session_state.cheek_blur_strength:.2f}")
+                        st.write("**チーク**")
+                        st.write(f"- カラー: {st.session_state.cheek_color} {hex_to_rgb(st.session_state.cheek_color)}")
+                        st.write(f"- 不透明度: {st.session_state.cheek_opacity}")
+                        st.write(f"- 中心: ({st.session_state.cheek_center_x:.2f}, {st.session_state.cheek_center_y:.2f})")
+                        st.write(f"- 半径: ({st.session_state.cheek_radius_x:.2f}, {st.session_state.cheek_radius_y:.2f})")
+                        st.write(f"- ぼかし強度: {st.session_state.cheek_blur_strength:.2f}")
 
                     if st.session_state.eyelid_enabled:
-                        st.write("**Eye Shadow**")
-                        st.write(f"- Color: {st.session_state.eyelid_color} {hex_to_rgb(st.session_state.eyelid_color)}")
-                        st.write(f"- Opacity: {st.session_state.eyelid_opacity}")
+                        st.write("**アイシャドウ**")
+                        st.write(f"- カラー: {st.session_state.eyelid_color} {hex_to_rgb(st.session_state.eyelid_color)}")
+                        st.write(f"- 不透明度: {st.session_state.eyelid_opacity}")
 
                     if st.session_state.eyelid_edge_enabled:
-                        st.write("**Eye Shadow (Edge)**")
-                        st.write(f"- Color: {st.session_state.eyelid_edge_color} {hex_to_rgb(st.session_state.eyelid_edge_color)}")
-                        st.write(f"- Opacity: {st.session_state.eyelid_edge_opacity}")
+                        st.write("**アイシャドウ（エッジ）**")
+                        st.write(f"- カラー: {st.session_state.eyelid_edge_color} {hex_to_rgb(st.session_state.eyelid_edge_color)}")
+                        st.write(f"- 不透明度: {st.session_state.eyelid_edge_opacity}")
 
                     if st.session_state.eyeliner_enabled:
-                        st.write("**Eye Liner**")
-                        st.write(f"- Color: {st.session_state.eyeliner_color} {hex_to_rgb(st.session_state.eyeliner_color)}")
-                        st.write(f"- Thickness: {st.session_state.eyeliner_thickness}")
+                        st.write("**アイライナー**")
+                        st.write(f"- カラー: {st.session_state.eyeliner_color} {hex_to_rgb(st.session_state.eyeliner_color)}")
+                        st.write(f"- 太さ: {st.session_state.eyeliner_thickness}")
 
                     if st.session_state.eyeiris_enabled:
-                        st.write("**Color Contact (Eye Iris)**")
-                        st.write(f"- Color: {st.session_state.eyeiris_color} {hex_to_rgb(st.session_state.eyeiris_color)}")
-                        st.write(f"- Opacity: {st.session_state.eyeiris_opacity}")
+                        st.write("**カラーコンタクト**")
+                        st.write(f"- カラー: {st.session_state.eyeiris_color} {hex_to_rgb(st.session_state.eyeiris_color)}")
+                        st.write(f"- 不透明度: {st.session_state.eyeiris_opacity}")
 
     except Exception as e:
         st.error(f"画像の読み込みに失敗しました: {str(e)}")
 
 else:
     # No image selected
-    st.info("👆 画像を選択してください")
+    st.info("画像を選択してください")
 
-    st.markdown("---")
-    st.subheader("📝 Parameters Guide")
+    with st.expander("パラメータガイド", expanded=False):
+        col1, col2, col3 = st.columns(3)
 
-    col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("""
+            **リップ**
+            - カラー / 不透明度
 
-    with col1:
-        st.markdown("""
-        **💋 Lips**
-        - **Color**: Lip color (RGB)
-        - **Opacity**: Makeup strength (0~1)
-        """)
+            **チーク**
+            - カラー / 不透明度
+            - 中心・半径 / ぼかし
+            """)
 
-    with col2:
-        st.markdown("""
-        **🌸 Cheek**
-        - **Color**: Cheek color (RGB)
-        - **Opacity**: Makeup strength (0~1)
-        - **Center**: Ellipse center position
-        - **Radius**: Ellipse size (horizontal/vertical)
-        - **Falloff**: Blur strength
-        """)
+        with col2:
+            st.markdown("""
+            **アイシャドウ**
+            - カラー / 不透明度
 
-    with col3:
-        st.markdown("""
-        **👁️ Eye Shadow**
-        - **Color**: Eye shadow color (RGB)
-        - **Opacity**: Makeup strength (0~1)
-        - Applies to eyelid area
+            **アイシャドウ（エッジ）**
+            - カラー / 不透明度
+            """)
 
-        **👁️ Eye Shadow (Edge)**
-        - Extended area eye shadow
+        with col3:
+            st.markdown("""
+            **アイライナー**
+            - カラー / 太さ
 
-        **✏️ Eye Liner**
-        - **Color**: Eye liner color (RGB)
-        - **Opacity**: Makeup strength (0~1)
-        - **Thickness**: Line thickness (1~5)
-
-        **👁️ Color Contact**
-        - **Color**: Iris color (RGB)
-        - **Opacity**: Contact strength (0~1)
-        """)
-
-    # Tech info
-    st.markdown("---")
-    st.subheader("🔧 Tech Stack")
-    st.markdown("""
-    - **Face Detection & Landmarks**: MediaPipe Face Detection & Face Mesh (478 points)
-    - **Image Processing**: OpenCV & PIL & numpy
-    - **UI**: Streamlit
-    """)
+            **カラーコンタクト**
+            - カラー / 不透明度
+            """)
 
 # ========================================
 # Footer

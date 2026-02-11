@@ -3,9 +3,6 @@ Tests for Face class and MakeupLayer classes.
 """
 import pytest
 import numpy as np
-import cv2
-import glob
-
 from face_makeup.processor import MakeupProcessor
 from face_makeup.face import Face, LipLayer, CheekLayer, EyeShadowLayer, EyeLinerLayer,EyeIrisLayer
 from face_makeup.core.types import (
@@ -21,15 +18,6 @@ from face_makeup.core.types import (
 def processor():
     """MakeupProcessor instance."""
     return MakeupProcessor()
-
-
-@pytest.fixture
-def test_image():
-    """Load first test image."""
-    image_files = sorted(glob.glob("tests/test_images/*.png"))
-    assert len(image_files) > 0, "No test images found"
-    image = cv2.imread(image_files[0])
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 
 @pytest.fixture
@@ -479,6 +467,75 @@ class TestPartParamsValidation:
                 center=(0.0, 0.0),
                 radius=(0.5, 0.5)
             )
+
+
+class TestCheekParamsValidation:
+    """Tests for CheekParams center/radius validation."""
+
+    def test_center_out_of_range_positive(self):
+        with pytest.raises(ValueError, match="center values must be in range"):
+            CheekParams(
+                color_params=ColorParams(target_rgb=(255, 180, 180)),
+                opacity=0.3,
+                center=(1.5, 0.0),
+                radius=(0.5, 0.5),
+            )
+
+    def test_center_out_of_range_negative(self):
+        with pytest.raises(ValueError, match="center values must be in range"):
+            CheekParams(
+                color_params=ColorParams(target_rgb=(255, 180, 180)),
+                opacity=0.3,
+                center=(0.0, -1.5),
+                radius=(0.5, 0.5),
+            )
+
+    def test_radius_zero_rejected(self):
+        with pytest.raises(ValueError, match="radius values must be in range"):
+            CheekParams(
+                color_params=ColorParams(target_rgb=(255, 180, 180)),
+                opacity=0.3,
+                center=(0.0, 0.0),
+                radius=(0.0, 0.5),
+            )
+
+    def test_radius_negative_rejected(self):
+        with pytest.raises(ValueError, match="radius values must be in range"):
+            CheekParams(
+                color_params=ColorParams(target_rgb=(255, 180, 180)),
+                opacity=0.3,
+                center=(0.0, 0.0),
+                radius=(0.5, -0.1),
+            )
+
+    def test_radius_over_one_rejected(self):
+        with pytest.raises(ValueError, match="radius values must be in range"):
+            CheekParams(
+                color_params=ColorParams(target_rgb=(255, 180, 180)),
+                opacity=0.3,
+                center=(0.0, 0.0),
+                radius=(1.5, 0.5),
+            )
+
+    def test_valid_params(self):
+        params = CheekParams(
+            color_params=ColorParams(target_rgb=(255, 180, 180)),
+            opacity=0.3,
+            center=(-0.5, 0.8),
+            radius=(0.3, 1.0),
+        )
+        assert params.center == (-0.5, 0.8)
+        assert params.radius == (0.3, 1.0)
+
+    def test_boundary_values(self):
+        params = CheekParams(
+            color_params=ColorParams(target_rgb=(255, 180, 180)),
+            opacity=0.3,
+            center=(-1.0, 1.0),
+            radius=(0.01, 1.0),
+        )
+        assert params.center == (-1.0, 1.0)
+        assert params.radius == (0.01, 1.0)
 
 
 class TestEyeLinerParamsValidation:

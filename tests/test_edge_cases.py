@@ -3,8 +3,6 @@ Edge case tests for face makeup library.
 """
 import pytest
 import numpy as np
-import cv2
-import glob
 
 from face_makeup.processor import MakeupProcessor, ProcessorConfig
 from face_makeup.core.types import ColorParams, LipsParams
@@ -16,26 +14,13 @@ def processor():
     return MakeupProcessor()
 
 
-@pytest.fixture
-def test_image():
-    """Load first test image."""
-    image_files = sorted(glob.glob("tests/test_images/*.png"))
-    assert len(image_files) > 0, "No test images found"
-    image = cv2.imread(image_files[0])
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-
 class TestImageEdgeCases:
     """Edge case tests for image input."""
 
-    def test_very_dark_image(self, processor):
+    def test_very_dark_image(self, processor, test_image):
         """Test with very dark image (may fail face detection)."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        image = cv2.imread(image_files[0])
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         # Make image very dark
-        dark_image = (image_rgb * 0.1).astype(np.uint8)
+        dark_image = (test_image * 0.1).astype(np.uint8)
 
         # May or may not detect face depending on image
         try:
@@ -48,14 +33,10 @@ class TestImageEdgeCases:
         except ValueError:
             pass  # No face detected is acceptable
 
-    def test_very_bright_image(self, processor):
+    def test_very_bright_image(self, processor, test_image):
         """Test with very bright image."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        image = cv2.imread(image_files[0])
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         # Make image very bright
-        bright_image = np.clip(image_rgb * 1.8, 0, 255).astype(np.uint8)
+        bright_image = np.clip(test_image * 1.8, 0, 255).astype(np.uint8)
 
         try:
             ctx = processor.open(bright_image)
@@ -66,15 +47,11 @@ class TestImageEdgeCases:
         except ValueError:
             pass
 
-    def test_high_contrast_image(self, processor):
+    def test_high_contrast_image(self, processor, test_image):
         """Test with high contrast image."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        image = cv2.imread(image_files[0])
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         # Increase contrast
-        mean = np.mean(image_rgb)
-        contrast_image = np.clip((image_rgb - mean) * 2 + mean, 0, 255).astype(np.uint8)
+        mean = np.mean(test_image)
+        contrast_image = np.clip((test_image - mean) * 2 + mean, 0, 255).astype(np.uint8)
 
         try:
             ctx = processor.open(contrast_image)
@@ -263,43 +240,31 @@ class TestParamsObjectEdgeCases:
 class TestProcessorConfigEdgeCases:
     """Edge case tests for processor configuration."""
 
-    def test_low_confidence_threshold(self):
+    def test_low_confidence_threshold(self, test_image):
         """Test with very low confidence threshold."""
         config = ProcessorConfig(min_detection_confidence=0.1)
         processor = MakeupProcessor(config=config)
 
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        image = cv2.imread(image_files[0])
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        ctx = processor.open(image_rgb)
+        ctx = processor.open(test_image)
         assert ctx is not None
 
-    def test_high_confidence_threshold(self):
+    def test_high_confidence_threshold(self, test_image):
         """Test with high confidence threshold."""
         config = ProcessorConfig(min_detection_confidence=0.9)
         processor = MakeupProcessor(config=config)
 
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        image = cv2.imread(image_files[0])
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         try:
-            ctx = processor.open(image_rgb)
+            ctx = processor.open(test_image)
             # High threshold may reject some faces
         except ValueError:
             pass  # Acceptable if no face meets threshold
 
-    def test_single_face_limit(self):
+    def test_single_face_limit(self, test_image):
         """Test with max_num_faces=1."""
         config = ProcessorConfig(max_num_faces=1)
         processor = MakeupProcessor(config=config)
 
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        image = cv2.imread(image_files[0])
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        ctx = processor.open(image_rgb)
+        ctx = processor.open(test_image)
         assert ctx.face_count <= 1
 
 

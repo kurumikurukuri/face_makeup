@@ -4,7 +4,6 @@ Integration tests for end-to-end makeup workflow.
 import pytest
 import numpy as np
 import cv2
-import glob
 import os
 import tempfile
 
@@ -22,23 +21,6 @@ from face_makeup.core.types import (
 def processor():
     """MakeupProcessor instance."""
     return MakeupProcessor()
-
-
-@pytest.fixture
-def test_image():
-    """Load first test image."""
-    image_files = sorted(glob.glob("tests/test_images/*.png"))
-    assert len(image_files) > 0, "No test images found"
-    image = cv2.imread(image_files[0])
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-
-@pytest.fixture
-def test_image_path():
-    """Get first test image path."""
-    image_files = sorted(glob.glob("tests/test_images/*.png"))
-    assert len(image_files) > 0, "No test images found"
-    return image_files[0]
 
 
 class TestEndToEndWorkflow:
@@ -175,13 +157,13 @@ class TestFluentAPIChaining:
 class TestProcessorReusability:
     """Tests for processor reusability."""
 
-    def test_process_multiple_images(self, processor):
+    def test_process_multiple_images(self, processor, test_images_dir):
         """Test processing multiple images with same processor."""
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
+        image_files = sorted(test_images_dir.glob("*.png")) + sorted(test_images_dir.glob("*.jpg"))
 
         results = []
         for img_path in image_files[:3]:
-            image = cv2.imread(img_path)
+            image = cv2.imread(str(img_path))
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
             try:
@@ -194,7 +176,7 @@ class TestProcessorReusability:
 
         assert len(results) > 0
 
-    def test_processor_with_custom_config(self):
+    def test_processor_with_custom_config(self, test_image):
         """Test processor with custom configuration."""
         config = ProcessorConfig(
             min_detection_confidence=0.7,
@@ -202,11 +184,7 @@ class TestProcessorReusability:
         )
         processor = MakeupProcessor(config=config)
 
-        image_files = sorted(glob.glob("tests/test_images/*.png"))
-        image = cv2.imread(image_files[0])
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        ctx = processor.open(image_rgb)
+        ctx = processor.open(test_image)
         assert ctx is not None
 
 
