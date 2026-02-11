@@ -163,15 +163,14 @@ streamlit run apps/streamlit_app.py
 - 顔が十分な大きさで写っていること（画像の10%以上推奨）
 - 顔が極端に傾いていないこと
 
-## 開発者向けドキュメント
+## ドキュメント
 
-詳細なアーキテクチャ、APIリファレンス、開発ガイドは `docs/` を参照してください：
+詳細な使い方については `docs/` を参照してください：
 
-- [Architecture](architecture.md) - 処理パイプライン、レイヤー構成
-- [API Reference](api.md) - クラス・メソッドの詳細
-- [adding-makeup-parts](adding-makeup-parts.md) - 新しいメイク部位を追加する手順
-- [CONTRIB](CONTRIB.md) - コントリビューションガイド（環境構築・テスト・規約）
-- [RUNBOOK](RUNBOOK.md) - 運用マニュアル（デプロイ・トラブルシューティング）
+- [クイックリファレンス](docs/quick-reference.md) - 基本的な使い方とトラブルシューティング
+- [コントリビューションガイド](docs/CONTRIB.md) - 開発環境構築とテスト
+- [メイク部位追加マニュアル](docs/adding-makeup-parts.md) - メイク部位拡張手順
+
 
 
 ## ライセンス

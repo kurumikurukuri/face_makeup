@@ -4,8 +4,7 @@
 
 ## ドキュメント
 
-- [Architecture](architecture.md) - 処理パイプライン、レイヤー構成
-- [API Reference](api.md) - クラス・メソッドの詳細
-- [adding-makeup-parts](adding-makeup-parts.md) - 新しいメイク部位を追加する手順
-- [CONTRIB](CONTRIB.md) - コントリビューションガイド（環境構築・テスト・規約）
-- [RUNBOOK](RUNBOOK.md) - 運用マニュアル（デプロイ・トラブルシューティング）
+- [クイックリファレンス](quick-reference.md) - 基本的な使い方とトラブルシューティング
+- [コントリビューションガイド](CONTRIB.md) - 開発環境構築とテスト
+- [メイク部位追加マニュアル](adding-makeup-parts.md) - メイク部位拡張手順
+
