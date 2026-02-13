@@ -94,49 +94,46 @@ result_debug = ctx.render(debug=True)
 | メソッド | 説明 | 主要パラメータ |
 |---------|------|--------------|
 | `lip(color, opacity, blur_strength)` | 口紅 | color (RGB), opacity (0-1) |
-| `cheek(color, opacity, side, center, radius)` | チーク | side ('left'/'right'/'both'), center (-1〜1), radius (0〜1) |
-| `eyelid(color, opacity, side)` | アイシャドウ | side ('left'/'right'/'both') |
-| `eyelid_edge(color, opacity, side)` | まぶたの際 | side ('left'/'right'/'both') |
-| `eyeliner(color, opacity, thickness, side)` | アイライナー | thickness (線の太さ) |
-| `eyeiris(color, opacity, side)` | カラーコンタクト | side ('left'/'right'/'both') |
+| `cheek(color, opacity, side, center, radius, blur_strength)` | チーク | side ('left'/'right'/'both'), center (-1〜1), radius (0〜1) |
+| `eyelid(color, opacity, side, blur_strength)` | アイシャドウ | side ('left'/'right'/'both') |
+| `eyelid_edge(color, opacity, side, blur_strength)` | まぶたの際 | side ('left'/'right'/'both') |
+| `eyeliner(color, opacity, thickness, side, blur_strength)` | アイライナー | thickness (線の太さ) |
+| `eyeiris(color, opacity, side, blur_strength)` | カラーコンタクト | side ('left'/'right'/'both') |
 | `clear()` | 全メイクをクリア | - |
 
 **使用例:**
 
 ```python
+# 基本的な使い方
+face.lip(color=(255, 100, 100), opacity=0.5)
+
 # メソッドチェーン
 face.lip(color=(255, 100, 100), opacity=0.5) \
     .cheek(color=(255, 180, 180), opacity=0.3) \
     .eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2)
 
 # 左右で異なる設定
-face.cheek(color=(255, 180, 180), opacity=0.3, side='left', center=(0.1, 0.0)) \
-    .cheek(color=(255, 200, 200), opacity=0.25, side='right', center=(-0.1, 0.0))
-```
-
-### パラメータクラス（詳細設定用）
-
-```python
-from face_makeup.core.types import (
-    LipsParams, CheekParams, EyeLinerParams, ColorParams
+face.cheek(
+    color=(255, 180, 180),
+    opacity=0.3,
+    side='left',
+    center=(0.1, 0.0)
+).cheek(
+    color=(255, 200, 200),
+    opacity=0.25,
+    side='right',
+    center=(-0.1, 0.0)
 )
 
-# 詳細パラメータで指定
-lip_params = LipsParams(
-    color_params=ColorParams(target_rgb=(255, 100, 100)),
-    opacity=0.5,
+# チーク位置・形状の詳細設定
+face.cheek(
+    color=(255, 180, 180),
+    opacity=0.3,
+    side='both',
+    center=(0.1, -0.1),   # X, Y オフセット
+    radius=(0.6, 0.6),    # 楕円の半径
     blur_strength=0.5
 )
-face.lip(params=lip_params)
-
-# チーク位置調整
-cheek_params = CheekParams(
-    color_params=ColorParams(target_rgb=(255, 180, 180)),
-    opacity=0.3,
-    center=(0.1, -0.1),  # X, Y オフセット
-    radius=(0.6, 0.6)    # 楕円の半径
-)
-face.cheek(params=cheek_params, side='left')
 ```
 
 ---

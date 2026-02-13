@@ -76,20 +76,10 @@ class TestEyebrowMethod:
         assert len(face._makeup_layers) == 1
         assert face._makeup_layers[0].part_name == 'eyebrow_right'
 
-    def test_eyebrow_requires_color_or_params(self, sample_face):
-        """color も params も未指定の場合はエラー。"""
-        with pytest.raises(ValueError, match="Either 'params' or 'color'"):
-            sample_face.eyebrow()
-
-    def test_eyebrow_with_params(self, sample_face):
-        """EyebrowParams で詳細設定できる。"""
-        params = EyebrowParams(
-            color_params=ColorParams(target_rgb=(80, 60, 40)),
-            opacity=0.5
-        )
-        face = sample_face.eyebrow(params=params)
-
-        assert len(face._makeup_layers) == 2
+    def test_eyebrow_invalid_color(self, sample_face):
+        """無効な色でエラーになる。"""
+        with pytest.raises(ValueError, match="Color must be"):
+            sample_face.eyebrow(color="brown")
 
     def test_eyebrow_method_chaining(self, sample_face):
         """メソッドチェーンで他のメイクと組み合わせられる。"""
@@ -222,35 +212,37 @@ class EyebrowLayer(MakeupLayer):
 ```python
 def eyebrow(
     self,
-    params: Optional[EyebrowParams] = None,
-    side: Literal['left', 'right', 'both'] = 'both',
     *,
-    color: Optional[Tuple[int, int, int]] = None,
-    opacity: float = 0.4
+    side: Literal['left', 'right', 'both'] = 'both',
+    color: Tuple[int, int, int],
+    opacity: float = 0.4,
+    blur_strength: float = 0.5
 ) -> Face:
     """眉毛メイクを適用する。
 
     Args:
-        params: EyebrowParams インスタンス（詳細設定用）
         side: 適用する側 ('left', 'right', 'both')
-        color: RGB色 (0-255)。params 未指定時は必須
+        color: RGB色 (0-255)
         opacity: 不透明度 (0.0-1.0)
+        blur_strength: エッジのぼかし強度 (0.0-1.0)
 
     Returns:
         self（メソッドチェーン用）
 
     Example:
         >>> face.eyebrow(color=(80, 60, 40), opacity=0.5)
+        >>> face.eyebrow(color=(80, 60, 40), side='left')
     """
-    if params is None:
-        if color is None:
-            raise ValueError("Either 'params' or 'color' must be provided")
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        params = EyebrowParams(
-            color_params=ColorParams(target_rgb=color),
-            opacity=opacity
-        )
+    self._validate_side(side)
+    self._validate_color(color)
+    self._validate_opacity(opacity)
+    self._validate_blur_strength(blur_strength)
+
+    params = EyebrowParams(
+        color_params=ColorParams(target_rgb=color),
+        opacity=opacity,
+        blur_strength=blur_strength
+    )
 
     if side in ('left', 'both'):
         self._makeup_layers.append(EyebrowLayer(
@@ -264,6 +256,7 @@ def eyebrow(
         ))
 
     self._notify_change()
+    logger.debug(f"Face {self._face_id}: Added eyebrow layer (side={side})")
     return self
 ```
 
@@ -417,12 +410,13 @@ def test_chain_all_methods(self, processor, test_image):
         .lip(color=(255, 100, 100), opacity=0.5)
         .cheek(color=(255, 180, 180), opacity=0.3, side='both')
         .eyelid(color=(180, 130, 150), opacity=0.3, side='both')
+        .eyelid_edge(color=(150, 100, 120), opacity=0.2, side='both')
         .eyeliner(color=(0, 0, 0), opacity=0.8, side='both')
         .eyebrow(color=(80, 60, 40), opacity=0.5, side='both')  # 新規追加
     )
 
     assert result is ctx.faces[0]
-    assert len(ctx.faces[0].makeup_layers) >= 9  # 数を更新
+    assert len(ctx.faces[0].makeup_layers) >= 10  # 数を更新
 ```
 
 #### 10.2 単独テストの追加

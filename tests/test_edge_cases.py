@@ -205,32 +205,22 @@ class TestCacheEdgeCases:
         assert not np.array_equal(results[0], results[2])
 
 
-class TestParamsObjectEdgeCases:
-    """Edge case tests for params objects."""
+class TestKwargEdgeCases:
+    """Edge case tests for keyword arguments."""
 
-    def test_params_with_defaults(self, processor, test_image):
-        """Test params objects with default values."""
+    def test_kwargs_with_defaults(self, processor, test_image):
+        """Test keyword arguments with default values."""
         ctx = processor.open(test_image)
-        params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        ctx.faces[0].lip(params)
+        ctx.faces[0].lip(color=(255, 100, 100), opacity=0.5)
         result = ctx.render()
         assert result.shape == test_image.shape
 
-    def test_mixed_params_and_kwargs(self, processor, test_image):
-        """Test mixing params object and kwargs calls."""
+    def test_multiple_kwargs_calls(self, processor, test_image):
+        """Test multiple makeup calls with keyword arguments."""
         ctx = processor.open(test_image)
 
-        # Use params object
-        params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        ctx.faces[0].lip(params)
-
-        # Use kwargs
+        # Apply different makeup types
+        ctx.faces[0].lip(color=(255, 100, 100), opacity=0.5)
         ctx.faces[0].cheek(color=(255, 180, 180), opacity=0.3)
 
         result = ctx.render()

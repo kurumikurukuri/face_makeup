@@ -135,22 +135,20 @@ class TestFluentAPIChaining:
         assert result is ctx.faces[0]
         assert len(ctx.faces[0].makeup_layers) >= 7
 
-    def test_chain_with_params_objects(self, processor, test_image):
-        """Test chaining with parameter objects."""
+    def test_chain_with_keyword_args(self, processor, test_image):
+        """Test chaining with keyword arguments."""
         ctx = processor.open(test_image)
 
-        lip_params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
+        result = (
+            ctx.faces[0]
+            .lip(color=(255, 100, 100), opacity=0.5)
+            .cheek(
+                color=(255, 180, 180),
+                opacity=0.3,
+                center=(0.0, 0.0),
+                radius=(0.6, 0.5)
+            )
         )
-        cheek_params = CheekParams(
-            color_params=ColorParams(target_rgb=(255, 180, 180)),
-            opacity=0.3,
-            center=(0.0, 0.0),
-            radius=(0.6, 0.5)
-        )
-
-        result = ctx.faces[0].lip(lip_params).cheek(cheek_params)
         assert result is ctx.faces[0]
 
 

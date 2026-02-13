@@ -4,7 +4,7 @@ Tests for Face class and MakeupLayer classes.
 import pytest
 import numpy as np
 from face_makeup.processor import MakeupProcessor
-from face_makeup.face import Face, LipLayer, CheekLayer, EyeShadowLayer, EyeLinerLayer,EyeIrisLayer
+from face_makeup.face import Face, LipLayer, CheekLayer, EyeShadowLayer, EyeLinerLayer, EyeIrisLayer
 from face_makeup.core.types import (
     LipsParams,
     CheekParams,
@@ -14,6 +14,8 @@ from face_makeup.core.types import (
     EyeIrisParams,
     PartParams
 )
+
+
 @pytest.fixture
 def processor():
     """MakeupProcessor instance."""
@@ -59,51 +61,31 @@ class TestFaceFluentAPI:
 
     def test_lip_returns_self(self, face):
         """Test that lip() returns self."""
-        params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        result = face.lip(params)
+        result = face.lip(color=(255, 100, 100))
         assert result is face
 
     def test_cheek_returns_self(self, face):
         """Test that cheek() returns self."""
-        params = CheekParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
+        result = face.cheek(
+            color=(255, 100, 100),
             opacity=0.5,
             center=(0.0, 0.0),
-            radius=(0.4, 0.2),
+            radius=(0.4, 0.2)
         )
-        result = face.cheek(params)
         assert result is face
 
     def test_eyelid_returns_self(self, face):
         """Test that eyelid() returns self."""
-        params = EyeShadowParams(
-            color_params=ColorParams(target_rgb=(180, 130, 150)),
-            opacity=0.3
-        )
-        result = face.eyelid(params)
+        result = face.eyelid(color=(180, 130, 150), opacity=0.3)
         assert result is face
 
     def test_chaining(self, face):
         """Test method chaining."""
-        lip_params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
+        result = (
+            face.lip(color=(255, 100, 100), opacity=0.5)
+            .cheek(color=(255, 100, 100), opacity=0.5, center=(0.0, 0.0), radius=(0.4, 0.2))
+            .eyelid(color=(180, 130, 150), opacity=0.3)
         )
-        cheek_params = CheekParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5,
-            center=(0.0, 0.0),
-            radius=(0.4, 0.2),
-        )
-        eye_params = EyeShadowParams(
-            color_params=ColorParams(target_rgb=(180, 130, 150)),
-            opacity=0.3
-        )
-
-        result = face.lip(lip_params).cheek(cheek_params).eyelid(eye_params)
         assert result is face
 
 
@@ -112,11 +94,7 @@ class TestFaceMakeupLayers:
 
     def test_lip_adds_layer(self, face):
         """Test that lip() adds a LipLayer."""
-        params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        face.lip(params)
+        face.lip(color=(255, 100, 100), opacity=0.5)
 
         layers = face.makeup_layers
         assert len(layers) == 1
@@ -125,13 +103,13 @@ class TestFaceMakeupLayers:
 
     def test_cheek_both_adds_two_layers(self, face):
         """Test that cheek(side='both') adds two layers."""
-        params = CheekParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
+        face.cheek(
+            color=(255, 100, 100),
             opacity=0.5,
             center=(0.0, 0.0),
             radius=(0.4, 0.2),
+            side='both'
         )
-        face.cheek(params, side='both')
 
         layers = face.makeup_layers
         assert len(layers) == 2
@@ -142,13 +120,13 @@ class TestFaceMakeupLayers:
 
     def test_cheek_left_adds_one_layer(self, face):
         """Test that cheek(side='left') adds one layer."""
-        params = CheekParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
+        face.cheek(
+            color=(255, 100, 100),
             opacity=0.5,
             center=(0.0, 0.0),
             radius=(0.4, 0.2),
+            side='left'
         )
-        face.cheek(params, side='left')
 
         layers = face.makeup_layers
         assert len(layers) == 1
@@ -156,11 +134,7 @@ class TestFaceMakeupLayers:
 
     def test_eyelid_both_adds_two_layers(self, face):
         """Test that eyelid(side='both') adds two layers."""
-        params = EyeShadowParams(
-            color_params=ColorParams(target_rgb=(180, 130, 150)),
-            opacity=0.3
-        )
-        face.eyelid(params, side='both')
+        face.eyelid(color=(180, 130, 150), opacity=0.3, side='both')
 
         layers = face.makeup_layers
         assert len(layers) == 2
@@ -171,12 +145,7 @@ class TestFaceMakeupLayers:
 
     def test_eyeliner_both_adds_two_layers(self, face):
         """Test that eyeliner(side='both') adds two layers."""
-        params = EyeLinerParams(
-            color_params=ColorParams(target_rgb=(0, 0, 0)),
-            opacity=1.0,
-            thickness=2
-        )
-        face.eyeliner(params, side='both')
+        face.eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2, side='both')
 
         layers = face.makeup_layers
         assert len(layers) == 2
@@ -187,12 +156,7 @@ class TestFaceMakeupLayers:
 
     def test_eyeliner_left_adds_one_layer(self, face):
         """Test that eyeliner(side='left') adds one layer."""
-        params = EyeLinerParams(
-            color_params=ColorParams(target_rgb=(0, 0, 0)),
-            opacity=1.0,
-            thickness=2
-        )
-        face.eyeliner(params, side='left')
+        face.eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2, side='left')
 
         layers = face.makeup_layers
         assert len(layers) == 1
@@ -200,30 +164,17 @@ class TestFaceMakeupLayers:
 
     def test_eyeliner_returns_self(self, face):
         """Test that eyeliner() returns self."""
-        params = EyeLinerParams(
-            color_params=ColorParams(target_rgb=(0, 0, 0)),
-            opacity=1.0,
-            thickness=2
-        )
-        result = face.eyeliner(params)
-        assert result is face  
+        result = face.eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2)
+        assert result is face
 
     def test_eyeiris_returns_self(self, face):
         """Test that eyeiris() returns self."""
-        params = EyeIrisParams(
-            color_params=ColorParams(target_rgb=(100, 150, 255)),
-            opacity=0.5
-        )
-        result = face.eyeiris(params)
+        result = face.eyeiris(color=(100, 150, 255), opacity=0.5)
         assert result is face
 
     def test_eyeiris_both_adds_two_layers(self, face):
         """Test that eyeiris(side='both') adds two layers."""
-        params = EyeIrisParams(
-            color_params=ColorParams(target_rgb=(100, 150, 255)),
-            opacity=0.5
-        )
-        face.eyeiris(params, side='both')
+        face.eyeiris(color=(100, 150, 255), opacity=0.5, side='both')
 
         layers = face.makeup_layers
         assert len(layers) == 2
@@ -234,23 +185,15 @@ class TestFaceMakeupLayers:
 
     def test_eyeiris_left_adds_one_layer(self, face):
         """Test that eyeiris(side='left') adds one layer."""
-        params = EyeIrisParams(
-            color_params=ColorParams(target_rgb=(100, 150, 255)),
-            opacity=0.5
-        )
-        face.eyeiris(params, side='left')
+        face.eyeiris(color=(100, 150, 255), opacity=0.5, side='left')
 
         layers = face.makeup_layers
         assert len(layers) == 1
-        assert layers[0].part_name == 'eyeiris_left'     
+        assert layers[0].part_name == 'eyeiris_left'
 
     def test_clear_removes_all_layers(self, face):
         """Test that clear() removes all layers."""
-        params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        face.lip(params)
+        face.lip(color=(255, 100, 100), opacity=0.5)
         assert len(face.makeup_layers) == 1
 
         face.clear()
@@ -262,17 +205,12 @@ class TestFaceMakeupLayers:
         assert result is face
 
 
-
 class TestMakeupLayerReturnsListCopy:
     """Tests that makeup_layers returns a copy."""
 
     def test_makeup_layers_returns_copy(self, face):
         """Test that makeup_layers returns a copy, not the internal list."""
-        params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        face.lip(params)
+        face.lip(color=(255, 100, 100), opacity=0.5)
 
         layers1 = face.makeup_layers
         layers2 = face.makeup_layers

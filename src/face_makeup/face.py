@@ -188,9 +188,8 @@ class Face:
 
     def lip(
         self,
-        params: Optional[LipsParams] = None,
         *,
-        color: Optional[Tuple[int, int, int]] = None,
+        color: Tuple[int, int, int],
         opacity: float = 0.5,
         blur_strength: float = 0.5
     ) -> Face:
@@ -198,7 +197,6 @@ class Face:
         Add lip makeup.
 
         Args:
-            params: Lip parameters (alias).
             color: RGB color tuple, e.g. (255, 0, 0) for red.
             opacity: Makeup strength 0.0-1.0.
             blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
@@ -209,19 +207,15 @@ class Face:
 
         Examples:
             >>> face.lip(color=(255, 100, 100), opacity=0.5)
-            >>> face.lip(LipsParams(...))  # alias
         """
-        if params is None:
-            if color is None:
-                raise ValueError("Either 'params' or 'color' must be provided")
-            self._validate_color(color)
-            self._validate_opacity(opacity)
-            self._validate_blur_strength(blur_strength)
-            params = LipsParams(
-                color_params=ColorParams(target_rgb=color),
-                opacity=opacity,
-                blur_strength=blur_strength
-            )
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = LipsParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            blur_strength=blur_strength
+        )
         self._makeup_layers.append(LipLayer(
             part_name='lips',
             params=params
@@ -232,10 +226,9 @@ class Face:
 
     def cheek(
         self,
-        params: Optional[CheekParams] = None,
-        side: Literal['left', 'right', 'both'] = 'both',
         *,
-        color: Optional[Tuple[int, int, int]] = None,
+        side: Literal['left', 'right', 'both'] = 'both',
+        color: Tuple[int, int, int],
         opacity: float = 0.3,
         center: Tuple[float, float] = (0.0, 0.0),
         radius: Tuple[float, float] = (0.5, 0.5),
@@ -245,7 +238,6 @@ class Face:
         Add cheek makeup.
 
         Args:
-            params: Cheek parameters (alias).
             side: 'left', 'right', or 'both'.
             color: RGB color tuple, e.g. (255, 180, 180) for pink.
             opacity: Makeup strength 0.0-1.0.
@@ -259,22 +251,18 @@ class Face:
 
         Examples:
             >>> face.cheek(color=(255, 180, 180), opacity=0.3)
-            >>> face.cheek(CheekParams(...))  # alias
         """
         self._validate_side(side)
-        if params is None:
-            if color is None:
-                raise ValueError("Either 'params' or 'color' must be provided")
-            self._validate_color(color)
-            self._validate_opacity(opacity)
-            self._validate_blur_strength(blur_strength)
-            params = CheekParams(
-                color_params=ColorParams(target_rgb=color),
-                opacity=opacity,
-                blur_strength=blur_strength,
-                center=center,
-                radius=radius
-            )
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = CheekParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            blur_strength=blur_strength,
+            center=center,
+            radius=radius
+        )
         if side in ('left', 'both'):
             self._makeup_layers.append(CheekLayer(
                 part_name='cheek_left',
@@ -293,10 +281,9 @@ class Face:
 
     def eyelid(
         self,
-        params: Optional[EyeShadowParams] = None,
-        side: Literal['left', 'right', 'both'] = 'both',
         *,
-        color: Optional[Tuple[int, int, int]] = None,
+        side: Literal['left', 'right', 'both'] = 'both',
+        color: Tuple[int, int, int],
         opacity: float = 0.3,
         blur_strength: float = 0.5
     ) -> Face:
@@ -304,7 +291,6 @@ class Face:
         Add eye shadow makeup.
 
         Args:
-            params: Eye shadow parameters (alias).
             side: 'left', 'right', or 'both'.
             color: RGB color tuple, e.g. (180, 130, 150).
             opacity: Makeup strength 0.0-1.0.
@@ -316,20 +302,16 @@ class Face:
 
         Examples:
             >>> face.eyelid(color=(180, 130, 150), opacity=0.3)
-            >>> face.eyelid(EyeShadowParams(...))  # alias
         """
         self._validate_side(side)
-        if params is None:
-            if color is None:
-                raise ValueError("Either 'params' or 'color' must be provided")
-            self._validate_color(color)
-            self._validate_opacity(opacity)
-            self._validate_blur_strength(blur_strength)
-            params = EyeShadowParams(
-                color_params=ColorParams(target_rgb=color),
-                opacity=opacity,
-                blur_strength=blur_strength
-            )
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = EyeShadowParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            blur_strength=blur_strength
+        )
         if side in ('left', 'both'):
             self._makeup_layers.append(EyeShadowLayer(
                 part_name='eyelid_left',
@@ -346,10 +328,9 @@ class Face:
 
     def eyelid_edge(
         self,
-        params: Optional[EyeShadowParams] = None,
-        side: Literal['left', 'right', 'both'] = 'both',
         *,
-        color: Optional[Tuple[int, int, int]] = None,
+        side: Literal['left', 'right', 'both'] = 'both',
+        color: Tuple[int, int, int],
         opacity: float = 0.3,
         blur_strength: float = 0.5
     ) -> Face:
@@ -357,7 +338,6 @@ class Face:
         Add eye edge (extended area) makeup.
 
         Args:
-            params: Eye shadow parameters (alias).
             side: 'left', 'right', or 'both'.
             color: RGB color tuple, e.g. (180, 130, 150).
             opacity: Makeup strength 0.0-1.0.
@@ -369,20 +349,16 @@ class Face:
 
         Examples:
             >>> face.eyelid_edge(color=(245, 41, 41), opacity=0.3)
-            >>> face.eyelid_edge(EyeShadowParams(...))  # alias
         """
         self._validate_side(side)
-        if params is None:
-            if color is None:
-                raise ValueError("Either 'params' or 'color' must be provided")
-            self._validate_color(color)
-            self._validate_opacity(opacity)
-            self._validate_blur_strength(blur_strength)
-            params = EyeShadowParams(
-                color_params=ColorParams(target_rgb=color),
-                opacity=opacity,
-                blur_strength=blur_strength
-            )
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = EyeShadowParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            blur_strength=blur_strength
+        )
         if side in ('left', 'both'):
             self._makeup_layers.append(EyeShadowLayer(
                 part_name='eyelid_edge_left',
@@ -399,10 +375,9 @@ class Face:
 
     def eyeliner(
         self,
-        params: Optional[EyeLinerParams] = None,
-        side: Literal['left', 'right', 'both'] = 'both',
         *,
-        color: Optional[Tuple[int, int, int]] = None,
+        side: Literal['left', 'right', 'both'] = 'both',
+        color: Tuple[int, int, int],
         opacity: float = 1.0,
         thickness: int = 2,
         blur_strength: float = 0.5
@@ -411,7 +386,6 @@ class Face:
         Add eye liner makeup.
 
         Args:
-            params: Eye liner parameters (alias).
             side: 'left', 'right', or 'both'.
             color: RGB color tuple, e.g. (0, 0, 0) for black.
             opacity: Makeup strength 0.0-1.0.
@@ -424,21 +398,17 @@ class Face:
 
         Examples:
             >>> face.eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2)
-            >>> face.eyeliner(EyeLinerParams(...))  # alias
         """
         self._validate_side(side)
-        if params is None:
-            if color is None:
-                raise ValueError("Either 'params' or 'color' must be provided")
-            self._validate_color(color)
-            self._validate_opacity(opacity)
-            self._validate_blur_strength(blur_strength)
-            params = EyeLinerParams(
-                color_params=ColorParams(target_rgb=color),
-                opacity=opacity,
-                thickness=thickness,
-                blur_strength=blur_strength
-            )
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = EyeLinerParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            thickness=thickness,
+            blur_strength=blur_strength
+        )
         if side in ('left', 'both'):
             self._makeup_layers.append(EyeLinerLayer(
                 part_name='eyeliner_left',
@@ -453,11 +423,11 @@ class Face:
         logger.debug(f"Face {self._face_id}: Added eye liner layer (side={side})")
         return self
 
-    def eyeiris(self,
-        params: Optional[EyeIrisParams] = None,
-        side: Literal['left', 'right', 'both'] = 'both',
+    def eyeiris(
+        self,
         *,
-        color: Optional[Tuple[int, int, int]] = None,
+        side: Literal['left', 'right', 'both'] = 'both',
+        color: Tuple[int, int, int],
         opacity: float = 0.5,
         blur_strength: float = 0.5
     ) -> Face:
@@ -465,7 +435,6 @@ class Face:
         Add eye iris (color contact lens) makeup.
 
         Args:
-            params: Eye iris parameters (alias).
             side: 'left', 'right', or 'both'.
             color: RGB color tuple, e.g. (100, 150, 255) for blue.
             opacity: Makeup strength 0.0-1.0.
@@ -477,20 +446,16 @@ class Face:
 
         Examples:
             >>> face.eyeiris(color=(100, 150, 255), opacity=0.5)
-            >>> face.eyeiris(EyeIrisParams(...))  # alias
         """
         self._validate_side(side)
-        if params is None:
-            if color is None:
-                raise ValueError("Either 'params' or 'color' must be provided")
-            self._validate_color(color)
-            self._validate_opacity(opacity)
-            self._validate_blur_strength(blur_strength)
-            params = EyeIrisParams(
-                color_params=ColorParams(target_rgb=color),
-                opacity=opacity,
-                blur_strength=blur_strength
-            )
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = EyeIrisParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            blur_strength=blur_strength
+        )
         if side in ('left', 'both'):
             self._makeup_layers.append(EyeIrisLayer(
                 part_name='eyeiris_left',

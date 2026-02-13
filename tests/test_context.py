@@ -9,7 +9,6 @@ import os
 import tempfile
 
 from face_makeup.processor import MakeupProcessor
-from face_makeup.core.types import LipsParams, ColorParams
 
 
 @pytest.fixture
@@ -71,11 +70,7 @@ class TestImageContextRender:
 
     def test_render_with_makeup(self, context, test_image):
         """Test render with makeup applied."""
-        lip_params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        context.faces[0].lip(lip_params)
+        context.faces[0].lip(color=(255, 100, 100), opacity=0.5)
 
         result = context.render()
         assert result.shape == test_image.shape
@@ -85,11 +80,7 @@ class TestImageContextRender:
 
     def test_render_caching(self, context):
         """Test that render results are cached."""
-        lip_params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        context.faces[0].lip(lip_params)
+        context.faces[0].lip(color=(255, 100, 100), opacity=0.5)
 
         result1 = context.render()
         result2 = context.render()
@@ -99,19 +90,11 @@ class TestImageContextRender:
 
     def test_render_cache_invalidation(self, context):
         """Test cache invalidation on makeup change."""
-        lip_params1 = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 0, 0)),
-            opacity=0.5
-        )
-        context.faces[0].lip(lip_params1)
+        context.faces[0].lip(color=(255, 0, 0), opacity=0.5)
         result1 = context.render()
 
         # Add more makeup (should invalidate cache)
-        lip_params2 = LipsParams(
-            color_params=ColorParams(target_rgb=(0, 255, 0)),
-            opacity=0.5
-        )
-        context.faces[0].lip(lip_params2)
+        context.faces[0].lip(color=(0, 255, 0), opacity=0.5)
         result2 = context.render()
 
         # Results should be different
@@ -123,11 +106,7 @@ class TestImageContextSave:
 
     def test_save_creates_file(self, context):
         """Test that save creates output file."""
-        lip_params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        context.faces[0].lip(lip_params)
+        context.faces[0].lip(color=(255, 100, 100), opacity=0.5)
 
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
             output_path = f.name
