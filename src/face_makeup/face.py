@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List, Literal, Optional, Tuple
+from typing import Callable, List, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -23,9 +23,6 @@ from face_makeup.core.types import (
     PartParams,
     EyeIrisParams
 )
-
-if TYPE_CHECKING:
-    from face_makeup.context import ImageContext
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +62,6 @@ class EyeLinerLayer(MakeupLayer):
 class EyeIrisLayer(MakeupLayer):
     """Eye iris makeup layer."""
     pass
-
-
-
 
 class Face:
     """
@@ -149,7 +143,7 @@ class Face:
         face_id: int,
         bbox: FaceBBox,
         landmarks: FaceLandmarks,
-        context: Optional[ImageContext] = None
+        change_callback: Optional[Callable[[], None]] = None
     ):
         """
         Initialize face.
@@ -158,12 +152,12 @@ class Face:
             face_id: Unique identifier within image.
             bbox: Face bounding box.
             landmarks: Facial landmarks.
-            context: Parent ImageContext (weak reference for cache invalidation).
+            change_callback: Optional callback to invoke when makeup changes (for cache invalidation).
         """
         self._face_id = face_id
         self._bbox = bbox
         self._landmarks = landmarks
-        self._context = context
+        self._change_callback = change_callback
         self._makeup_layers: List[MakeupLayer] = []
 
     @property
@@ -482,11 +476,16 @@ class Face:
         logger.debug(f"Face {self._face_id}: Cleared all makeup layers")
         return self
 
-    def _notify_change(self) -> None:
-        """Notify context that makeup has changed."""
-        if self._context is not None:
-            self._context.invalidate_cache()
+    def set_change_callback(self, callback: Optional[Callable[[], None]]) -> None:
+        """
+        Set callback invoked when makeup layers change.
 
-    def _set_context(self, context: ImageContext) -> None:
-        """Set parent context (called by ImageContext)."""
-        self._context = context
+        Args:
+            callback: Callable with no arguments, or None to clear.
+        """
+        self._change_callback = callback
+
+    def _notify_change(self) -> None:
+        """Notify callback that makeup has changed."""
+        if self._change_callback is not None:
+            self._change_callback()

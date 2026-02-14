@@ -16,6 +16,8 @@ from face_makeup.core.face_detector import FaceDetector
 from face_makeup.core.landmark_extractor import LandmarkExtractor
 from face_makeup.core.segmenter import FaceSegmenter
 from face_makeup.core.makeup_blender import MakeupBlender
+from face_makeup.rendering_pipeline import RenderingPipeline
+from face_makeup.io_handler import IOHandler
 from face_makeup.context import ImageContext
 from face_makeup.face import Face
 
@@ -65,9 +67,13 @@ class MakeupProcessor:
             min_tracking_confidence=self._config.min_tracking_confidence
         )
 
-        # Components used for rendering
-        self._segmenter = FaceSegmenter()
-        self._blender = MakeupBlender()
+        # Create rendering pipeline (shared across all contexts)
+        segmenter = FaceSegmenter()
+        blender = MakeupBlender()
+        self._rendering_pipeline = RenderingPipeline(segmenter, blender)
+
+        # Create I/O handler
+        self._io_handler = IOHandler()
 
         logger.info("MakeupProcessor initialized")
 
@@ -118,12 +124,12 @@ class MakeupProcessor:
                 face_id=i,
                 bbox=bboxes[i],
                 landmarks=landmarks_list[i],
-                context=None  # Set by ImageContext
+                change_callback=None  # Set by ImageContext
             )
             faces.append(face)
 
-        # Generate ImageContext
-        ctx = ImageContext(image, faces, self)
+        # Generate ImageContext with shared pipeline and handler
+        ctx = ImageContext(image, faces, self._rendering_pipeline, self._io_handler)
 
         logger.info(f"Generated ImageContext with {len(faces)} faces")
         return ctx

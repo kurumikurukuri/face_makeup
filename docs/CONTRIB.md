@@ -108,21 +108,26 @@ result = ctx.render(debug=True)
 
 ```
 makeup/
-├── src/face_makeup/        # メインライブラリ
-│   ├── processor.py        # MakeupProcessor
-│   ├── face.py             # Face API
-│   ├── context.py          # ImageContext
-│   ├── renderer.py         # レンダリングエンジン
-│   ├── constants.py        # ランドマークインデックス
-│   └── core/               # コア処理
-│       ├── face_detector.py
-│       ├── segmenter.py
-│       └── makeup_blender.py
+├── src/face_makeup/            # メインライブラリ
+│   ├── processor.py            # MakeupProcessor（顔検出・初期化）
+│   ├── face.py                 # Face API（メイク指定）
+│   ├── context.py              # ImageContext（画像コンテキスト）
+│   ├── rendering_pipeline.py   # レンダリング管理・キャッシュ
+│   ├── renderer.py             # 低レベル合成処理
+│   ├── io_handler.py           # 画像の保存・表示
+│   ├── constants.py            # ランドマークインデックス
+│   └── core/                   # コア処理
+│       ├── types.py            # パラメータ型定義
+│       ├── face_detector.py    # 顔検出
+│       ├── landmark_extractor.py # ランドマーク抽出
+│       ├── segmenter.py        # マスク生成
+│       ├── makeup_blender.py   # メイクブレンド
+│       └── debug_visualizer.py # デバッグ可視化
 ├── apps/
-│   └── streamlit_app.py    # Streamlit デモ
-├── tests/                  # テストスイート
-├── docs/                   # ドキュメント
-└── pyproject.toml          # パッケージ設定
+│   └── streamlit_app.py        # Streamlit デモ
+├── tests/                      # テストスイート
+├── docs/                       # ドキュメント
+└── pyproject.toml              # パッケージ設定
 ```
 
 ---

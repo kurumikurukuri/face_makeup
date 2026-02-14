@@ -7,17 +7,15 @@ Manages rendering and output operations.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-import cv2
 import numpy as np
 
 from face_makeup.face import Face
-from face_makeup.renderer import Renderer
 
 if TYPE_CHECKING:
-    from face_makeup.processor import MakeupProcessor
+    from face_makeup.rendering_pipeline import RenderingPipeline
+    from face_makeup.io_handler import IOHandler
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +38,8 @@ class ImageContext:
         self,
         image: np.ndarray,
         faces: List[Face],
-        processor: MakeupProcessor
+        rendering_pipeline: RenderingPipeline,
+        io_handler: Optional[IOHandler] = None
     ):
         """
         Initialize image context.
@@ -48,18 +47,19 @@ class ImageContext:
         Args:
             image: Original RGB image (H, W, 3).
             faces: List of detected Face objects.
-            processor: Reference to parent processor (for rendering components).
+            rendering_pipeline: RenderingPipeline for rendering makeup.
+            io_handler: Optional IOHandler for save/show operations.
         """
         self._original_image = image.copy()
         self._faces = faces
-        self._processor = processor
-        self._rendered_cache: Optional[np.ndarray] = None
+        self._rendering_pipeline = rendering_pipeline
+        self._io_handler = io_handler
 
-        # Set context reference in all faces
+        # Set change callbacks for all faces
         for face in self._faces:
-            face._set_context(self)
+            face.set_change_callback(self._invalidate_cache)
 
-        logger.debug(f"ImageContext created with {len(faces)} faces")
+        logger.debug("ImageContext created with %d faces", len(faces))
 
     @property
     def original_image(self) -> np.ndarray:
@@ -93,12 +93,19 @@ class ImageContext:
             raise IndexError(f"Face index {index} out of range (0-{len(self._faces) - 1})")
         return self._faces[index]
 
+    @property
+    def _io(self) -> IOHandler:
+        """Lazily initialize and return IOHandler."""
+        if self._io_handler is None:
+            from face_makeup.io_handler import IOHandler
+            self._io_handler = IOHandler()
+        return self._io_handler
+
     def render(self, debug: bool = False) -> np.ndarray:
         """
         Render all makeup layers to produce final image.
 
-        This is where lazy evaluation happens - all Face makeup_layers
-        are applied to the original image.
+        Delegates to RenderingPipeline which handles caching.
 
         Args:
             debug: Include debug overlays (landmarks, masks).
@@ -106,38 +113,12 @@ class ImageContext:
         Returns:
             Rendered RGB image with all makeup applied.
         """
-        # Return cached result if available and not debug mode
-        if self._rendered_cache is not None and not debug:
-            logger.debug("Returning cached render result")
-            return self._rendered_cache.copy()
-
-        session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Create renderer with debug visualizer if needed
-        visualizer = None
-        if debug:
-            from face_makeup.core.debug_visualizer import DebugVisualizer
-            visualizer = DebugVisualizer()
-
-        renderer = Renderer(
-            segmenter=self._processor._segmenter,
-            blender=self._processor._blender,
-            visualizer=visualizer
-        )
-
-        result = renderer.compose(
+        return self._rendering_pipeline.render(
+            self,
             self._original_image,
             self._faces,
-            debug=debug,
-            session_id=session_id
+            debug=debug
         )
-
-        # Cache result (only if not debug mode)
-        if not debug:
-            self._rendered_cache = result.copy()
-
-        logger.debug("Render complete")
-        return result
 
     def save(
         self,
@@ -152,12 +133,7 @@ class ImageContext:
             debug: If True, save debug images to outputs/debug/.
         """
         result = self.render(debug=debug)
-
-        # Convert RGB to BGR for OpenCV
-        result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(path, result_bgr)
-
-        logger.info(f"Saved result to {path}")
+        self._io.save(result, path)
 
     def show(
         self,
@@ -174,16 +150,9 @@ class ImageContext:
             wait_key: cv2.waitKey duration (0 = wait indefinitely).
         """
         result = self.render(debug=debug)
+        self._io.show(result, window_name, wait_key)
 
-        # Convert RGB to BGR for OpenCV
-        result_bgr = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
-
-        cv2.imshow(window_name, result_bgr)
-        cv2.waitKey(wait_key)
-
-        logger.debug(f"Showing preview in window: {window_name}")
-
-    def invalidate_cache(self) -> None:
+    def _invalidate_cache(self) -> None:
         """Clear rendered cache (called when makeup changes)."""
-        self._rendered_cache = None
+        self._rendering_pipeline.invalidate_cache(self)
         logger.debug("Render cache invalidated")
