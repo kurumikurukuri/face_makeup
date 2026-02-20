@@ -11,7 +11,6 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-import cv2
 import numpy as np
 
 from face_makeup.core.segmenter import FaceSegmenter
@@ -89,8 +88,14 @@ class Renderer:
         # Get unique part names from layers
         part_names = list(set(layer.part_name for layer in layers))
 
-        # Generate hard masks
-        hard_masks = self._generate_masks(image.shape[:2], face, part_names)
+        # Preprocess for eyeliner once so segment() and the debug path share the
+        # same gray array — avoids a second bilateralFilter call in debug mode.
+        eyeliner_gray: Optional[np.ndarray] = None
+        if any(isinstance(layer.params, EyeLinerParams) for layer in layers):
+            eyeliner_gray = self._segmenter.preprocess_for_eyeliner(image)
+
+        # Generate hard masks (pass pre-computed gray for eyeliner edge correction)
+        hard_masks = self._generate_masks(image.shape[:2], face, part_names, image=image, eyeliner_gray=eyeliner_gray)
 
         if debug and self._visualizer:
             self._visualizer.save_masks(image, hard_masks, face_session, "hard")
@@ -135,6 +140,38 @@ class Renderer:
                         cheek_side=cheek_side,
                         session_id=face_session
                     )
+
+                # Save eyeliner correction debug visualization
+                if isinstance(layer.params, EyeLinerParams):
+                    eye_side = 'right' if layer.part_name.endswith('_right') else 'left'
+                    debug_entries = self._segmenter.get_eyeliner_correction_debug(
+                        image=image,
+                        landmarks=face.landmarks,
+                        image_shape=image.shape[:2],
+                        part_name=layer.part_name,
+                        side=eye_side,
+                        gray=eyeliner_gray,
+                    )
+                    for i, entry in enumerate(debug_entries):
+                        if 'samples' not in entry:
+                            continue
+                        self._visualizer.save_eyeliner_correction_debug(
+                            image=image,
+                            side=entry['side'],
+                            gray=entry['gray'],
+                            px=entry['px'], py=entry['py'],
+                            qx=entry['qx'], qy=entry['qy'],
+                            detected_x=entry['detected_x'],
+                            detected_y=entry['detected_y'],
+                            samples=entry['samples'],
+                            first_derivative=entry['first_derivative'],
+                            second_derivative=entry['second_derivative'],
+                            t_values=entry['t_values'],
+                            zero_crossings=entry['zero_crossings'],
+                            best_idx=entry['best_idx'],
+                            point_index=i,
+                            session_id=face_session
+                        )
 
         return result
 
@@ -184,7 +221,9 @@ class Renderer:
         self,
         image_shape: tuple,
         face: Face,
-        parts: List[str]
+        parts: List[str],
+        image: Optional[np.ndarray] = None,
+        eyeliner_gray: Optional[np.ndarray] = None
     ) -> Dict[str, np.ndarray]:
         """
         Generate hard masks for face parts.
@@ -193,6 +232,9 @@ class Renderer:
             image_shape: (H, W) tuple.
             face: Face with landmarks.
             parts: List of part names.
+            image: Original image for eyeliner edge correction.
+            eyeliner_gray: Pre-computed grayscale from preprocess_for_eyeliner.
+                           Passed through to avoid recomputing bilateralFilter.
 
         Returns:
             Dictionary of part_name -> hard mask (uint8 0/255).
@@ -200,7 +242,9 @@ class Renderer:
         return self._segmenter.segment(
             image_shape,
             face.landmarks,
-            parts
+            parts,
+            image=image,
+            eyeliner_gray=eyeliner_gray
         )
 
     def _resolve_overlaps(self, layers: List[MakeupLayer]) -> None:
@@ -215,7 +259,7 @@ class Renderer:
                     Modified in-place.
         """
         # Filter layers with masks
-        layers_with_masks = [l for l in layers if l.mask is not None]
+        layers_with_masks = [layer for layer in layers if layer.mask is not None]
         if not layers_with_masks:
             return
 
@@ -224,7 +268,7 @@ class Renderer:
         # Sort by priority (process HIGH priority first)
         sorted_layers = sorted(
             layers_with_masks,
-            key=lambda l: PARAMS_PRIORITY.get(type(l.params), 0),
+            key=lambda layer: PARAMS_PRIORITY.get(type(layer.params), 0),
             reverse=True
         )
 

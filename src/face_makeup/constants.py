@@ -27,13 +27,17 @@ Midpoint feature:
 
 # Lips (upper lip)
 UPPER_LIP_INDICES = [
-    185, 74, 73, 72, 11, 302, 303, 304,409, 272,271,268,12,38,41,42,
+    185, 39, ("mid", 37, 72), ("mid", 0, 11), ("mid", 267, 302), 270, 409,
+    272, 271, 268, 12, 38, 41, 42,
 ]
+
 
 # Lower lip - outer contour only
 LOWER_LIP_INDICES = [
-89,179,86,15,316,403,319,307, 320, 404, 315, 16, 85, 180, 90, 77,
+    89, ("mid", 179, 178), ("mid", 86, 87), ("mid", 15, 14), ("mid", 316, 317), ("mid", 403, 402), 319,
+    307, 320, 404, 315, 16, 85, 180, 90, 77,
 ]
+
 
 # Full lips (upper + lower combined)
 # Note: Processed separately in segmenter.py then combined
@@ -93,14 +97,37 @@ EYELID_EDGE_RIGHT_INDICES = [
 EYELINER_UPPER_LEFT_INDICES = [
     133, 173, 157, 158, 159, 160, 161, 246, 33, 130,
 ]
-EYELINER_LOWER_LEFT_INDICES = [
-    33, 7, 163, 144, 145, 153, 154, 155, 133,
+# Direction-target landmarks for upper-left eyeliner edge detection.
+# delta[i] defines the P->Q search direction for indices[i].
+EYELINER_UPPER_LEFT_INDICES_DELTA = [
+    133, 190, 56, 28, 27, 29, 30, 247, 113, 130,
 ]
+
+
+EYELINER_LOWER_LEFT_INDICES = [
+    7, 163, 144, 145, 153, 154, 155, 133,
+]
+# Direction-target landmarks for lower-left eyeliner edge detection.
+EYELINER_LOWER_LEFT_INDICES_DELTA = [
+    25, 110, 24, 23, 22, 26, 112, 133,
+]
+
+
 EYELINER_UPPER_RIGHT_INDICES = [
     362, 398, 384, 385, 386, 387, 388, 466, 263, 359,
 ]
+# Direction-target landmarks for upper-right eyeliner edge detection.
+EYELINER_UPPER_RIGHT_INDICES_DELTA = [
+    362, 414, 286, 258, 257, 259, 260, 467, 342, 359,
+]
+
+
 EYELINER_LOWER_RIGHT_INDICES = [
-    263, 249, 390, 373, 374, 380, 381, 382, 362,
+    249, 390, 373, 374, 380, 381, 382, 362,
+]
+# Direction-target landmarks for lower-right eyeliner edge detection.
+EYELINER_LOWER_RIGHT_INDICES_DELTA = [
+    255, 339, 254, 253, 252, 256, 341, 362,
 ]
 
 EYELINER_LEFT_INDICES = {
@@ -111,6 +138,17 @@ EYELINER_LEFT_INDICES = {
 EYELINER_RIGHT_INDICES = {
     'upper': EYELINER_UPPER_RIGHT_INDICES,
     'lower': EYELINER_LOWER_RIGHT_INDICES,
+}
+
+EYELINER_CORRECTION_MAP = {
+    'eyeliner_left': {
+        'upper': (EYELINER_UPPER_LEFT_INDICES, EYELINER_UPPER_LEFT_INDICES_DELTA),
+        'lower': (EYELINER_LOWER_LEFT_INDICES, EYELINER_LOWER_LEFT_INDICES_DELTA),
+    },
+    'eyeliner_right': {
+        'upper': (EYELINER_UPPER_RIGHT_INDICES, EYELINER_UPPER_RIGHT_INDICES_DELTA),
+        'lower': (EYELINER_LOWER_RIGHT_INDICES, EYELINER_LOWER_RIGHT_INDICES_DELTA),
+    },
 }
 
 LEFT_EYE_IDX = [

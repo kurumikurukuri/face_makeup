@@ -4,17 +4,36 @@ Debug visualization module for makeup pipeline.
 Provides visualization utilities for debugging each step of the makeup pipeline.
 """
 import os
+import re
 import logging
 from typing import Dict, Optional, TYPE_CHECKING
 
 import cv2
 import numpy as np
 
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    _MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    plt = None
+    _MATPLOTLIB_AVAILABLE = False
+
 if TYPE_CHECKING:
     from .types import FaceBBox, FaceLandmarks, CheekParams
     from .segmenter import FaceSegmenter
 
 logger = logging.getLogger(__name__)
+
+_SAFE_SESSION_ID_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
+
+
+def _sanitize_session_id(session_id: str) -> str:
+    """Validate session_id contains only safe characters (prevents path traversal)."""
+    if not _SAFE_SESSION_ID_RE.match(session_id):
+        raise ValueError(f"Invalid session_id — must match [A-Za-z0-9_-]: {session_id!r}")
+    return session_id
 
 
 class DebugVisualizer:
@@ -247,12 +266,7 @@ class DebugVisualizer:
             [left]     Image space with 3D-projected ellipse
             [right]  3D view of tangent UVW space
         """
-        try:
-            import matplotlib
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-            from matplotlib.patches import Ellipse
-        except ImportError:
+        if not _MATPLOTLIB_AVAILABLE:
             return
 
         # =================================================================
@@ -481,3 +495,176 @@ class DebugVisualizer:
         plt.tight_layout()
         plt.savefig(path, dpi=150)
         plt.close()
+
+    def save_eyeliner_correction_debug(
+        self,
+        image: np.ndarray,
+        side: str,
+        gray: np.ndarray,
+        px: float, py: float,
+        qx: float, qy: float,
+        detected_x: int, detected_y: int,
+        samples: Optional[np.ndarray],
+        first_derivative: Optional[np.ndarray],
+        second_derivative: Optional[np.ndarray],
+        t_values: Optional[np.ndarray],
+        zero_crossings: Optional[np.ndarray],
+        best_idx: Optional[int],
+        point_index: int,
+        session_id: str
+    ) -> None:
+        """
+        Save per-point eyeliner edge correction debug visualization.
+
+        Generates a figure showing the ROI around the landmark with the detected
+        edge overlaid, alongside the intensity profile and its 1st/2nd derivatives
+        with zero-crossings marked.
+
+        Args:
+            image: Original RGB image (H, W, 3) uint8.
+            side: Eye side label ('left' or 'right') used in the output filename.
+            gray: Preprocessed grayscale image (H, W) uint8.
+            px, py: Original landmark position.
+            qx, qy: Delta landmark defining the P->Q search direction.
+            detected_x, detected_y: Corrected edge position.
+            samples: Smoothed intensity samples along the ray.
+            first_derivative: 1st derivative of smoothed samples.
+            second_derivative: 2nd derivative of smoothed samples.
+            t_values: t parameter values corresponding to each sample.
+            zero_crossings: Indices of 2nd-derivative zero-crossings.
+            best_idx: Index of the selected zero-crossing (None if none found).
+            point_index: Landmark index within this eye (used in the filename).
+            session_id: Session ID for the output subdirectory.
+        """
+        if not _MATPLOTLIB_AVAILABLE:
+            return
+
+        if image is None or gray is None:
+            return
+
+        session_dir = os.path.join(self.debug_dir, _sanitize_session_id(session_id))
+        os.makedirs(session_dir, exist_ok=True)
+
+        r = 50
+
+        # -------------------------------------------------
+        # ROI  (computed before allocating the figure to avoid a leak on early return)
+        # -------------------------------------------------
+        h, w = image.shape[:2]
+
+        y0 = max(0, int(py) - r)
+        y1 = min(h, int(py) + r)
+        x0 = max(0, int(px) - r)
+        x1 = min(w, int(px) + r)
+
+        if y0 >= y1 or x0 >= x1:
+            return
+
+        fig = plt.figure(figsize=(12, 14))
+
+        roi_color = image[y0:y1, x0:x1].copy()
+        roi_gray = gray[y0:y1, x0:x1].copy()
+
+        # -------------------------------------------------
+        # Point-in-ROI helper
+        # -------------------------------------------------
+        def inside_roi(x, y):
+            return x0 <= x < x1 and y0 <= y < y1
+
+        # -------------------------------------------------
+        # Overlay
+        # -------------------------------------------------
+        if inside_roi(px, py):
+            cv2.circle(
+                roi_color,
+                (int(px) - x0, int(py) - y0),
+                4, (255, 0, 0), -1
+            )
+
+        if inside_roi(detected_x, detected_y):
+            cv2.circle(
+                roi_color,
+                (int(detected_x) - x0, int(detected_y) - y0),
+                4, (0, 255, 0), -1
+            )
+
+        if inside_roi(px, py) and inside_roi(qx, qy):
+            cv2.line(
+                roi_color,
+                (int(px) - x0, int(py) - y0),
+                (int(qx) - x0, int(qy) - y0),
+                (255, 255, 0), 1
+            )
+
+        # -------------------------------------------------
+        # Subplot 1: Color ROI
+        # -------------------------------------------------
+        ax1 = fig.add_subplot(3, 2, 1)
+        ax1.set_title(f"Color ROI (point {point_index}, side={side})")
+        ax1.imshow(roi_color)
+        ax1.axis("off")
+
+        # -------------------------------------------------
+        # Subplot 2: Gray ROI
+        # -------------------------------------------------
+        ax2 = fig.add_subplot(3, 2, 2)
+        ax2.set_title("Gray ROI")
+        ax2.imshow(roi_gray, cmap="gray")
+        ax2.axis("off")
+
+        # -------------------------------------------------
+        # Subplot 3: Intensity + 1st derivative
+        # -------------------------------------------------
+        ax3 = fig.add_subplot(3, 1, 2)
+        ax3.set_title("Intensity / 1st Derivative")
+
+        if samples is not None and t_values is not None:
+            n = min(len(samples), len(t_values))
+            ax3.plot(t_values[:n], samples[:n], label="Intensity")
+
+        if first_derivative is not None and t_values is not None:
+            n = min(len(first_derivative), len(t_values))
+            ax3.plot(t_values[:n], first_derivative[:n], label="1st Derivative")
+
+        if zero_crossings is not None and t_values is not None:
+            for zc in zero_crossings:
+                if 0 <= zc < len(t_values):
+                    ax3.axvline(t_values[zc], linestyle='--', alpha=0.4)
+
+        if best_idx is not None and t_values is not None:
+            if 0 <= best_idx < len(t_values):
+                ax3.axvline(t_values[best_idx], color='r', linewidth=2, label="Selected")
+
+        ax3.legend()
+
+        # -------------------------------------------------
+        # Subplot 4: 2nd derivative
+        # -------------------------------------------------
+        ax4 = fig.add_subplot(3, 1, 3)
+        ax4.set_title("2nd Derivative")
+
+        if second_derivative is not None and t_values is not None:
+            n = min(len(second_derivative), len(t_values))
+            ax4.plot(t_values[:n], second_derivative[:n])
+
+        ax4.axhline(0, linestyle='--', alpha=0.5)
+
+        if best_idx is not None and t_values is not None:
+            if 0 <= best_idx < len(t_values):
+                ax4.axvline(t_values[best_idx], color='r')
+
+        plt.tight_layout()
+
+        path = os.path.join(
+            session_dir,
+            f"eyeliner_correction_debug_{side}_{point_index}.png"
+        )
+
+        fig.savefig(path, dpi=120, bbox_inches="tight")
+        plt.close(fig)
+
+        logger.debug(
+            f"[EyelinerDebug] saved: {path} | "
+            f"samples={None if samples is None else len(samples)} "
+            f"best_idx={best_idx}"
+        )

@@ -2,19 +2,19 @@
 Face part segmentation.
 Generate masks from landmarks.
 """
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict, Optional, Union
 import numpy as np
 import cv2
 
 from .types import FaceLandmarks, CheekParams
-from ..constants import PART_LANDMARK_MAP
-
+from .eyeliner_corrector import EyelinerCorrector
+from ..constants import PART_LANDMARK_MAP, EYELINER_CORRECTION_MAP
 
 
 class FaceSegmenter:
     """Generate face part masks from landmarks."""
     def __init__(self):
-        pass
+        self._corrector = EyelinerCorrector()
 
 
     def _expand_indices_with_midpoints(self,
@@ -60,7 +60,9 @@ class FaceSegmenter:
     def segment(self,
                 image_shape: Tuple[int, int],
                 landmarks: FaceLandmarks,
-                parts: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
+                parts: Optional[List[str]] = None,
+                image: Optional[np.ndarray] = None,
+                eyeliner_gray: Optional[np.ndarray] = None) -> Dict[str, np.ndarray]:
         """
         Face part segmentation.
 
@@ -68,6 +70,10 @@ class FaceSegmenter:
             image_shape: (H, W).
             landmarks: FaceLandmarks.
             parts: List of parts to generate (None for all parts).
+            image: Original RGB image for eyeliner edge correction.
+                   If None, eyeliner uses landmark-only segmentation.
+            eyeliner_gray: Preprocessed grayscale image for eyeliner edge
+                           detection. If None, preprocessing is run internally.
 
         Returns:
             Dict[str, np.ndarray]: Part name -> hard mask (H, W) uint8 0/255.
@@ -78,6 +84,12 @@ class FaceSegmenter:
         h, w = image_shape
         coords = landmarks.to_image_coords(w, h)
         masks = {}
+
+        # Preprocess once so both eyeliner parts share the same gray image.
+        # Caller may supply a pre-computed gray to avoid a redundant bilateralFilter.
+        needs_eyeliner_gray = any(part in EYELINER_CORRECTION_MAP for part in parts)
+        if eyeliner_gray is None and image is not None and needs_eyeliner_gray:
+            eyeliner_gray = self.preprocess_for_eyeliner(image)
 
         for part in parts:
             if part not in PART_LANDMARK_MAP:
@@ -92,8 +104,23 @@ class FaceSegmenter:
                 indices = part_config
                 seg_type = 'convex'  # Default
 
-            # Special processing for lips/eyeliner (process upper/lower separately and combine)
-            if isinstance(indices, dict):
+            # Eyeliner correction: use image-based edge detection when image is provided.
+            # The corrected flat array is split back into per-sub-array groups so that
+            # upper and lower curves are drawn as separate polylines, matching the
+            # uncorrected path (avoids a spurious connecting stroke between the two).
+            if eyeliner_gray is not None and part in EYELINER_CORRECTION_MAP and isinstance(indices, dict):
+                corrected_flat = self._correct_eyeliner_points(coords, part, gray=eyeliner_gray)
+                h_m, w_m = image_shape
+                mask = np.zeros((h_m, w_m), dtype=np.uint8)
+                offset = 0
+                for _key, (sub_indices, _deltas) in EYELINER_CORRECTION_MAP[part].items():
+                    n = len(sub_indices)
+                    sub_points = corrected_flat[offset:offset + n]
+                    offset += n
+                    sub_mask = self._create_mask_from_points(sub_points, image_shape, seg_type)
+                    mask = cv2.bitwise_or(mask, sub_mask)
+            elif isinstance(indices, dict):
+                # Special processing for lips/eyeliner (process upper/lower separately and combine)
                 mask = self._create_combined_mask(coords, indices, image_shape, seg_type)
             else:
                 # Expand midpoints and get coordinates
@@ -161,8 +188,13 @@ class FaceSegmenter:
             # Polygon connecting points in order (concave shapes allowed)
             if len(points) < 3:
                 return mask
-            points_int = points.astype(np.int32)
-            cv2.fillPoly(mask, [points_int], 255)
+            shift = 4
+            scale = 1 << shift
+
+            points_shifted = (points * scale).astype(np.int32)
+
+            cv2.fillPoly(mask, [points_shifted], 255, shift=shift)
+
 
         elif seg_type == 'convex':
             # Calculate and fill convex hull
@@ -172,15 +204,17 @@ class FaceSegmenter:
             cv2.fillConvexPoly(mask, hull, 255)
 
         elif seg_type == 'curve':
-            # Draw as curve
-            # For thin lines like eyeliner
+            # Draw as curve with sub-pixel precision (same shift=4 technique as 'polygon')
+            # Preserves the float coordinates returned by eyeliner edge correction.
             if len(points) < 2:
                 return mask
-            points_int = points.astype(np.int32)
+            shift = 4
+            scale = 1 << shift
+            points_shifted = (points * scale).astype(np.int32)
             # Adjust line thickness based on image size
-            thickness = max(2, min(h, w) // 500)
-            cv2.polylines(mask, [points_int], isClosed=False, color=255, thickness=thickness)
-            
+            thickness = max(1, min(h, w) // 512)
+            cv2.polylines(mask, [points_shifted], isClosed=False, color=255, thickness=thickness, lineType=cv2.LINE_AA, shift=shift)
+
         elif seg_type == 'ellipse':
             if len(points) < 5:
                 return mask
@@ -191,6 +225,69 @@ class FaceSegmenter:
             raise ValueError(f"Unknown segmentation type: {seg_type}")
 
         return mask
+
+    # ------------------------------------------------------------------
+    # Eyeliner edge correction — delegates to EyelinerCorrector
+    # ------------------------------------------------------------------
+
+    def preprocess_for_eyeliner(self, image: np.ndarray) -> np.ndarray:
+        """Preprocess RGB image for eyeliner edge detection. Returns (H, W) uint8 gray."""
+        return self._corrector.preprocess(image)
+
+    def _find_eyeliner_edge(
+        self,
+        gray: np.ndarray,
+        px: float, py: float,
+        qx: float, qy: float,
+        return_debug_info: bool = False,
+    ) -> Union[Tuple[int, int], Tuple[Tuple[int, int], Optional[dict]]]:
+        """
+        Find the eyeliner edge along P->Q (t=0 to _T_MAX) via 2nd-derivative
+        zero-crossing. Returns (x, y) or ((x, y), Optional[dict]).
+        """
+        return self._corrector.find_edge(gray, px, py, qx, qy, return_debug_info)
+
+    def _correct_eyeliner_points(
+        self,
+        coords: np.ndarray,
+        part_name: str,
+        gray: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Apply edge-based correction to eyeliner points.
+
+        Returns (M, 2) float32 array of corrected coordinates,
+        concatenating upper and lower in correction-map order.
+        """
+        return self._corrector.correct_points(coords, part_name, gray)
+
+    def get_eyeliner_correction_debug(
+        self,
+        image: np.ndarray,
+        landmarks: FaceLandmarks,
+        image_shape: Tuple[int, int],
+        part_name: str,
+        side: str,
+        gray: Optional[np.ndarray] = None,
+    ) -> List[dict]:
+        """
+        Run eyeliner correction and return per-point debug information.
+
+        Args:
+            image: Original RGB image (H, W, 3) uint8.
+            landmarks: Face landmarks.
+            image_shape: (H, W).
+            part_name: Eyeliner part name (e.g., 'eyeliner_left').
+            side: Eye side label ('left' or 'right') stored in each entry.
+            gray: Pre-computed grayscale from preprocess_for_eyeliner.
+                  If None, preprocessing runs internally.
+
+        Returns:
+            List of debug dicts, one per corrected point.
+        """
+        return self._corrector.get_debug_entries(
+            image, landmarks, image_shape, part_name, side, gray
+        )
 
     def __enter__(self):
         """Enter context manager."""
@@ -491,9 +588,6 @@ class FaceSegmenter:
         local_poly = np.round(ellipse_img_px_points - np.array([[bbox_x_min, bbox_y_min]])).astype(np.int32)
         cv2.fillPoly(poly_mask, [local_poly], 255)
         pixels_inside_ellipse = poly_mask > 0
-
-        # Calculate distance from center for gradient
-        center_img_px = np.array([ellipse_img_px_center_x, ellipse_img_px_center_y])
 
         # Vector from center to each pixel
         vec_from_center_x = bbox_xs - ellipse_img_px_center_x
