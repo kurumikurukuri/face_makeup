@@ -20,6 +20,7 @@ class FaceDetector:
         self.detector = mp.solutions.face_detection.FaceDetection(
             min_detection_confidence=min_detection_confidence
         )
+        self._closed = False
 
     def detect(self, image: np.ndarray) -> List[FaceBBox]:
         """
@@ -64,7 +65,19 @@ class FaceDetector:
 
         return bboxes
 
-    def __del__(self):
+    def close(self) -> None:
         """Release resources."""
+        if getattr(self, '_closed', False):
+            return
         if hasattr(self, 'detector'):
             self.detector.close()
+        self._closed = True
+
+    def __enter__(self) -> "FaceDetector":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+    def __del__(self):
+        self.close()

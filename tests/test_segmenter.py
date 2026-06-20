@@ -5,7 +5,29 @@ import pytest
 import numpy as np
 
 from face_makeup.core.segmenter import FaceSegmenter
-from face_makeup.core.types import FaceLandmarks
+from face_makeup.core.types import FaceLandmarks, CheekParams, ColorParams
+
+
+def _make_cheek_params(center=(0.0, 0.0), radius=(0.5, 0.5)) -> CheekParams:
+    return CheekParams(
+        color_params=ColorParams(),
+        opacity=1.0,
+        center=center,
+        radius=radius,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def _make_fake_face3d(n: int = 478, seed: int = 42) -> np.ndarray:
+    """Create fake 3D face landmarks (x, y in [0, 0.5], z in [0, 0.05])."""
+    rng = np.random.default_rng(seed)
+    pts = rng.random((n, 3)).astype(np.float32)
+    pts[:, :2] *= 0.5
+    pts[:, 2] *= 0.05
+    return pts
 
 
 @pytest.fixture
@@ -216,3 +238,118 @@ class TestSegmenterEdgeCases:
             # All should create some mask content
             if seg_type != 'curve':  # curve might not fill area, just draw lines
                 assert mask.sum() > 0
+
+
+# ===========================================================================
+# Tests for the 3 extracted sub-methods of _create_cheek_mask_3d
+# ===========================================================================
+
+class TestBuildCheekTangentPlane:
+    """_build_cheek_tangent_plane: steps 1-5 (UVW basis + quadratic surface fit)."""
+
+    @pytest.fixture
+    def left_inputs(self):
+        from face_makeup.constants import CHEEK_LEFT_INDICES
+        face3d = _make_fake_face3d()
+        return face3d, face3d[CHEEK_LEFT_INDICES]
+
+    def test_basis_is_orthogonal(self, segmenter, left_inputs):
+        face3d, cheek_face3d = left_inputs
+        _, u, v, w, _, _ = segmenter._build_cheek_tangent_plane(face3d, cheek_face3d, 'left')
+        assert abs(np.dot(u, v)) < 1e-4
+        assert abs(np.dot(u, w)) < 1e-4
+        assert abs(np.dot(v, w)) < 1e-4
+
+    def test_basis_vectors_are_unit_length(self, segmenter, left_inputs):
+        face3d, cheek_face3d = left_inputs
+        _, u, v, w, _, _ = segmenter._build_cheek_tangent_plane(face3d, cheek_face3d, 'left')
+        assert abs(np.linalg.norm(u) - 1.0) < 1e-4
+        assert abs(np.linalg.norm(v) - 1.0) < 1e-4
+        assert abs(np.linalg.norm(w) - 1.0) < 1e-4
+
+    def test_surface_coeffs_has_6_elements(self, segmenter, left_inputs):
+        face3d, cheek_face3d = left_inputs
+        *_, coeffs = segmenter._build_cheek_tangent_plane(face3d, cheek_face3d, 'left')
+        assert coeffs.shape == (6,)
+
+    def test_cheek_uvw_shape_matches_input(self, segmenter, left_inputs):
+        face3d, cheek_face3d = left_inputs
+        *_, uvw, _ = segmenter._build_cheek_tangent_plane(face3d, cheek_face3d, 'left')
+        assert uvw.shape == (len(cheek_face3d), 3)
+
+    def test_left_right_produce_different_u_axes(self, segmenter):
+        from face_makeup.constants import CHEEK_LEFT_INDICES, CHEEK_RIGHT_INDICES
+        face3d = _make_fake_face3d()
+        _, u_l, _, _, _, _ = segmenter._build_cheek_tangent_plane(
+            face3d, face3d[CHEEK_LEFT_INDICES], 'left'
+        )
+        _, u_r, _, _, _, _ = segmenter._build_cheek_tangent_plane(
+            face3d, face3d[CHEEK_RIGHT_INDICES], 'right'
+        )
+        assert not np.allclose(u_l, u_r)
+
+
+class TestProjectEllipseToImage:
+    """_project_ellipse_to_image: steps 6-9 (ellipse params + image projection)."""
+
+    @pytest.fixture
+    def tangent_plane(self, segmenter):
+        from face_makeup.constants import CHEEK_LEFT_INDICES
+        face3d = _make_fake_face3d()
+        cheek_face3d = face3d[CHEEK_LEFT_INDICES]
+        return segmenter._build_cheek_tangent_plane(face3d, cheek_face3d, 'left')
+
+    def test_polygon_has_50_points(self, segmenter, tangent_plane):
+        params = _make_cheek_params(center=(0.0, 0.0), radius=(0.5, 0.5))
+        _, _, poly, _ = segmenter._project_ellipse_to_image(*tangent_plane, params, (480, 640))
+        assert poly.shape == (50, 2)
+
+    def test_center_within_image_bounds(self, segmenter, tangent_plane):
+        params = _make_cheek_params(center=(0.0, 0.0), radius=(0.3, 0.3))
+        h, w = 480, 640
+        cx, cy, _, _ = segmenter._project_ellipse_to_image(*tangent_plane, params, (h, w))
+        assert 0 <= cx <= w
+        assert 0 <= cy <= h
+
+    def test_polygon_dtype_is_float(self, segmenter, tangent_plane):
+        params = _make_cheek_params(center=(0.0, 0.0), radius=(0.5, 0.5))
+        _, _, poly, _ = segmenter._project_ellipse_to_image(*tangent_plane, params, (480, 640))
+        assert poly.dtype in (np.float32, np.float64)
+
+
+class TestRasterizeEllipseMask:
+    """_rasterize_ellipse_mask: steps 10-11 (distance mask generation)."""
+
+    @pytest.fixture
+    def circle_inputs(self):
+        """Simple circular polygon centered at (320, 240) r=60."""
+        theta = np.linspace(0, 2 * np.pi, 50)
+        cx, cy, r = 320.0, 240.0, 60.0
+        poly = np.column_stack([cx + r * np.cos(theta), cy + r * np.sin(theta)])
+        return cx, cy, poly
+
+    def test_output_shape(self, segmenter, circle_inputs):
+        cx, cy, poly = circle_inputs
+        mask = segmenter._rasterize_ellipse_mask(cx, cy, poly, (480, 640))
+        assert mask.shape == (480, 640)
+
+    def test_output_dtype_is_float32(self, segmenter, circle_inputs):
+        cx, cy, poly = circle_inputs
+        mask = segmenter._rasterize_ellipse_mask(cx, cy, poly, (480, 640))
+        assert mask.dtype == np.float32
+
+    def test_values_are_binary(self, segmenter, circle_inputs):
+        cx, cy, poly = circle_inputs
+        mask = segmenter._rasterize_ellipse_mask(cx, cy, poly, (480, 640))
+        assert set(np.unique(mask)).issubset({0.0, 1.0})
+
+    def test_center_pixel_is_filled(self, segmenter, circle_inputs):
+        cx, cy, poly = circle_inputs
+        mask = segmenter._rasterize_ellipse_mask(cx, cy, poly, (480, 640))
+        assert mask[int(cy), int(cx)] == 1.0
+
+    def test_corner_pixels_are_zero(self, segmenter, circle_inputs):
+        cx, cy, poly = circle_inputs
+        mask = segmenter._rasterize_ellipse_mask(cx, cy, poly, (480, 640))
+        assert mask[0, 0] == 0.0
+        assert mask[479, 639] == 0.0

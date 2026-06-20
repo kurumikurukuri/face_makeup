@@ -27,9 +27,7 @@ class FaceLandmarks:
 
     def to_image_coords(self, img_width: int, img_height: int) -> np.ndarray:
         """Convert to image coordinate system"""
-        coords = self.points.copy()
-        coords[:, 0] *= img_width
-        coords[:, 1] *= img_height
+        coords = self.points * np.array([img_width, img_height], dtype=np.float32)
         return np.round(coords).astype(np.int32)
 
 

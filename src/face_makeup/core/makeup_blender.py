@@ -150,10 +150,10 @@ class MakeupBlender:
         hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
         mask_bool = mask > 0
 
-        result_hsv = hsv.copy()
-        result_hsv[mask_bool, 0] = target_hsv[0]
-        result_hsv[mask_bool, 1] = target_hsv[1]
-        result_hsv[mask_bool, 2] = hsv[mask_bool, 2] * 0.8 + target_hsv[2] * 0.2
+        h_channel = np.where(mask_bool, target_hsv[0], hsv[:, :, 0])
+        s_channel = np.where(mask_bool, target_hsv[1], hsv[:, :, 1])
+        v_channel = np.where(mask_bool, hsv[:, :, 2] * 0.8 + target_hsv[2] * 0.2, hsv[:, :, 2])
+        result_hsv = np.stack([h_channel, s_channel, v_channel], axis=2).astype(np.float32)
 
         rgb_target = cv2.cvtColor(result_hsv, cv2.COLOR_HSV2RGB)
 
@@ -224,16 +224,18 @@ class MakeupBlender:
                       eye_mask: np.ndarray,
                       params: EyeIrisParams) -> np.ndarray:
         """
-        Apply iris makeup.
+        Apply colored contact lens effect to iris area.
+
+        The iris mask from fitEllipse on iris landmarks always forms a full
+        ellipse, which overlaps the eyelid skin when the eye is half-closed
+        or blinking. eye_mask (the eye-opening polygon) clips the ellipse
+        back down to the actual eye region so color never bleeds onto skin.
 
         Args:
             image: Input image.
-            eyeiris_mask: Iris mask (H, W) float32.
-            eye_mask: Eye region mask to constrain iris (H, W) float32.
-            params: Iris parameters.
-
-        Returns:
-            Image with iris makeup applied.
+            eyeiris_mask: Iris ellipse mask (H, W) float32 or uint8 0/255.
+            eye_mask: Eye region mask to constrain iris (H, W) float32 or uint8 0/255.
+            params: Eye iris parameters.
 
         Raises:
             ValueError: If eye_mask is None.
@@ -247,6 +249,8 @@ class MakeupBlender:
                              eyeiris_mask: np.ndarray,
                              eye_mask: np.ndarray) -> np.ndarray:
         """
+        Clip the iris ellipse mask to the eye-opening region.
+
         Args:
             eyeiris_mask: Iris mask (H, W) uint8 0/255 or float32.
             eye_mask: Eye region mask (H, W) uint8 0/255 or float32.
@@ -254,20 +258,8 @@ class MakeupBlender:
         Returns:
             Combined mask with iris limited to eye region (H, W) float32.
         """
-        # Convert to uint8 if needed for bitwise operations
-        if eyeiris_mask.dtype == np.float32:
-            eyeiris_uint8 = (eyeiris_mask * 255).astype(np.uint8)
-        else:
-            eyeiris_uint8 = eyeiris_mask
+        eyeiris_soft = eyeiris_mask.astype(np.float32) / 255.0 if eyeiris_mask.dtype == np.uint8 else eyeiris_mask
+        eye_soft = eye_mask.astype(np.float32) / 255.0 if eye_mask.dtype == np.uint8 else eye_mask
+        return eyeiris_soft * eye_soft
 
-        if eye_mask.dtype == np.float32:
-            eye_uint8 = (eye_mask * 255).astype(np.uint8)
-        else:
-            eye_uint8 = eye_mask
-
-        # Bitwise AND to limit iris to eye region
-        combined = cv2.bitwise_and(eyeiris_uint8, eye_uint8)
-
-        # Convert back to float32 for consistency with other blend methods
-        return combined.astype(np.float32) / 255.0
 

@@ -15,4 +15,5 @@ outputs/
 .claude/
 .reports/
 .coverage
+*.egg-info/
 tasks/

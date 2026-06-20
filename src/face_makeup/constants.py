@@ -1,40 +1,36 @@
 """
 MediaPipe Face Mesh landmark indices (478 points).
 
-Midpoint feature:
-  You can specify midpoints or centroids of 2 or more landmarks as indices.
-
-  Format: ('mid', idx1, idx2, ..., idxN)
-
-  Examples:
-    ('mid', 33, 133)           # Midpoint of points 33 and 133 (average of 2 points)
-    ('mid', 33, 133, 160)      # Centroid of points 33, 133, 160 (average of 3 points)
-
-  Usage:
-    EXAMPLE_INDICES = [
-        33,                    # Regular landmark
-        ('mid', 33, 133),      # Midpoint (virtual landmark)
-        159,                   # Regular landmark
-    ]
-
-  Notes:
-    - Midpoints are computed at runtime
-    - Midpoint indices are not included in the existing 478 points
+Custom landmarks are defined in custom_landmark.py.
+Use resolve_indices() to expand index lists (including 'mid' tuples) to coordinates.
 """
+
+from .custom_landmark import (
+    LM_1001, LM_1002, LM_1003,
+    LM_1101, LM_1102, LM_1103, LM_1104, LM_1105,
+    LM_1201, LM_1202, LM_1203, LM_1204, LM_1205, LM_1206, LM_1207,
+    LM_1301, LM_1302, LM_1303, LM_1304, LM_1305, LM_1306, LM_1307,
+    LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408,
+    LM_1501, LM_1502, LM_1503, LM_1504, LM_1505, LM_1506, LM_1507,
+    LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608,
+    LM_1701, LM_1702, LM_1703, LM_1704, LM_1705, LM_1706, LM_1707,
+    resolve_indices,
+)
 
 # MediaPipe Face Mesh landmark indices
 # Reference: https://github.com/google/mediapipe/blob/master/docs/solutions/face_mesh.md
 
+
 # Lips (upper lip)
 UPPER_LIP_INDICES = [
-    185, 39, ("mid", 37, 72), ("mid", 0, 11), ("mid", 267, 302), 270, 409,
+    185, 39, LM_1001, LM_1002, LM_1003, 270, 409,
     272, 271, 268, 12, 38, 41, 42,
 ]
 
 
 # Lower lip - outer contour only
 LOWER_LIP_INDICES = [
-    89, ("mid", 179, 178), ("mid", 86, 87), ("mid", 15, 14), ("mid", 316, 317), ("mid", 403, 402), 319,
+    89, LM_1101, LM_1102, LM_1103, LM_1104, LM_1105, 319,
     307, 320, 404, 315, 16, 85, 180, 90, 77,
 ]
 
@@ -73,62 +69,31 @@ EYELID_RIGHT_INDICES = [
 
 # Eyelid edge - crease area
 EYELID_EDGE_LEFT_INDICES = [
-    ("mid", 247, 33),
-    ("mid", 30, 161),
-    ("mid", 29, 160),
-    ("mid", 27, 159),
-    ("mid", 28, 158),
-    ("mid", 56, 157),
-    ("mid", 190, 243),
+    LM_1201, LM_1202, LM_1203, LM_1204, LM_1205, LM_1206, LM_1207,
     243, 133, 173, 157, 158, 159, 160, 161, 246, 33, 130, 226,
 ]
 
 EYELID_EDGE_RIGHT_INDICES = [
-    ("mid", 467, 263),
-    ("mid", 260, 388),
-    ("mid", 259, 387),
-    ("mid", 257, 386),
-    ("mid", 258, 385),
-    ("mid", 286, 384),
-    ("mid", 414, 463),
+    LM_1301, LM_1302, LM_1303, LM_1304, LM_1305, LM_1306, LM_1307,
     463, 362, 398, 384, 385, 386, 387, 388, 466, 263, 359, 446,
 ]
 
 EYELINER_UPPER_LEFT_INDICES = [
-    133, 173, 157, 158, 159, 160, 161, 246, 33, 130,
+    LM_1507, LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408, 130, 226
 ]
-# Direction-target landmarks for upper-left eyeliner edge detection.
-# delta[i] defines the P->Q search direction for indices[i].
-EYELINER_UPPER_LEFT_INDICES_DELTA = [
-    133, 190, 56, 28, 27, 29, 30, 247, 113, 130,
-]
-
 
 EYELINER_LOWER_LEFT_INDICES = [
-    7, 163, 144, 145, 153, 154, 155, 133,
+    130, LM_1501, LM_1502, LM_1503, LM_1504, LM_1505, LM_1506, LM_1507, 133
 ]
-# Direction-target landmarks for lower-left eyeliner edge detection.
-EYELINER_LOWER_LEFT_INDICES_DELTA = [
-    25, 110, 24, 23, 22, 26, 112, 133,
-]
-
 
 EYELINER_UPPER_RIGHT_INDICES = [
-    362, 398, 384, 385, 386, 387, 388, 466, 263, 359,
+    LM_1707, LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608, 359, 446
 ]
-# Direction-target landmarks for upper-right eyeliner edge detection.
-EYELINER_UPPER_RIGHT_INDICES_DELTA = [
-    362, 414, 286, 258, 257, 259, 260, 467, 342, 359,
-]
-
 
 EYELINER_LOWER_RIGHT_INDICES = [
-    249, 390, 373, 374, 380, 381, 382, 362,
+    359, LM_1701, LM_1702, LM_1703, LM_1704, LM_1705, LM_1706, LM_1707, 362,
 ]
-# Direction-target landmarks for lower-right eyeliner edge detection.
-EYELINER_LOWER_RIGHT_INDICES_DELTA = [
-    255, 339, 254, 253, 252, 256, 341, 362,
-]
+
 
 EYELINER_LEFT_INDICES = {
     'upper': EYELINER_UPPER_LEFT_INDICES,
@@ -142,15 +107,20 @@ EYELINER_RIGHT_INDICES = {
 
 EYELINER_CORRECTION_MAP = {
     'eyeliner_left': {
-        'upper': (EYELINER_UPPER_LEFT_INDICES, EYELINER_UPPER_LEFT_INDICES_DELTA),
-        'lower': (EYELINER_LOWER_LEFT_INDICES, EYELINER_LOWER_LEFT_INDICES_DELTA),
+        'upper': EYELINER_UPPER_LEFT_INDICES,
+        'lower': EYELINER_LOWER_LEFT_INDICES,
     },
     'eyeliner_right': {
-        'upper': (EYELINER_UPPER_RIGHT_INDICES, EYELINER_UPPER_RIGHT_INDICES_DELTA),
-        'lower': (EYELINER_LOWER_RIGHT_INDICES, EYELINER_LOWER_RIGHT_INDICES_DELTA),
+        'upper': EYELINER_UPPER_RIGHT_INDICES,
+        'lower': EYELINER_LOWER_RIGHT_INDICES,
     },
 }
 
+
+
+# Eye opening contour - used to clip the iris ellipse mask so contact-lens
+# color never bleeds onto eyelid skin when the eye is half-closed (the
+# fitEllipse iris mask alone can overlap the eyelid in that case).
 LEFT_EYE_IDX = [
     33, 7, 163, 144, 145, 153, 154, 155,
     133, 173, 157, 158, 159, 160, 161, 246
@@ -160,7 +130,6 @@ RIGHT_EYE_IDX = [
     362, 382, 381, 380, 374, 373, 390, 249,
     263, 466, 388, 387, 386, 385, 384, 398
 ]
-
 
 EYE_IRIS_RIGHT_INDICES = [474, 475, 476, 477, 473]
 EYE_IRIS_LEFT_INDICES = [469, 470, 471, 472, 468]

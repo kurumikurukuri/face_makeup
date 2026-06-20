@@ -2,13 +2,13 @@
 Face part segmentation.
 Generate masks from landmarks.
 """
-from typing import Tuple, List, Dict, Optional, Union
+from typing import Tuple, List, Dict, Optional
 import numpy as np
 import cv2
 
 from .types import FaceLandmarks, CheekParams
 from .eyeliner_corrector import EyelinerCorrector
-from ..constants import PART_LANDMARK_MAP, EYELINER_CORRECTION_MAP
+from ..constants import PART_LANDMARK_MAP, EYELINER_CORRECTION_MAP, resolve_indices
 
 
 class FaceSegmenter:
@@ -16,46 +16,6 @@ class FaceSegmenter:
     def __init__(self):
         self._corrector = EyelinerCorrector()
 
-
-    def _expand_indices_with_midpoints(self,
-                                       indices: List,
-                                       coords: np.ndarray) -> np.ndarray:
-        """
-        Get coordinates from index list and expand midpoints.
-
-        Args:
-            indices: List of landmark indices.
-                     Regular int, or ('mid', idx1, idx2, ...) tuple.
-            coords: All landmark coordinates (N, 2).
-
-        Returns:
-            np.ndarray: Expanded coordinates (M, 2).
-
-        Example:
-            indices = [33, ('mid', 33, 133), 159]
-            -> [coord[33], (coord[33]+coord[133])/2, coord[159]]
-        """
-        expanded_coords = []
-
-        for idx in indices:
-            if isinstance(idx, tuple) and idx[0] == 'mid':
-                # Calculate midpoint
-                midpoint_indices = idx[1:]
-                if len(midpoint_indices) < 2:
-                    raise ValueError(f"Midpoint requires at least 2 indices, got {len(midpoint_indices)}")
-
-                # Get coordinates for specified indices
-                points = coords[list(midpoint_indices)]
-                # Calculate mean (centroid)
-                midpoint = np.mean(points, axis=0)
-                expanded_coords.append(midpoint)
-            elif isinstance(idx, int):
-                # Normal landmark
-                expanded_coords.append(coords[idx])
-            else:
-                raise ValueError(f"Invalid index type: {type(idx)}. Expected int or ('mid', ...) tuple.")
-
-        return np.array(expanded_coords, dtype=coords.dtype)
 
     def segment(self,
                 image_shape: Tuple[int, int],
@@ -71,9 +31,13 @@ class FaceSegmenter:
             landmarks: FaceLandmarks.
             parts: List of parts to generate (None for all parts).
             image: Original RGB image for eyeliner edge correction.
-                   If None, eyeliner uses landmark-only segmentation.
+                   Used to compute eyeliner_gray when it isn't supplied.
+                   If both are None, eyeliner uses landmark-only segmentation.
             eyeliner_gray: Preprocessed grayscale image for eyeliner edge
-                           detection. If None, preprocessing is run internally.
+                           detection (see preprocess_for_eyeliner). If None,
+                           it is computed once from `image` and shared across
+                           eyeliner_left/eyeliner_right so bilateralFilter
+                           runs at most once per call.
 
         Returns:
             Dict[str, np.ndarray]: Part name -> hard mask (H, W) uint8 0/255.
@@ -104,16 +68,17 @@ class FaceSegmenter:
                 indices = part_config
                 seg_type = 'convex'  # Default
 
-            # Eyeliner correction: use image-based edge detection when image is provided.
-            # The corrected flat array is split back into per-sub-array groups so that
-            # upper and lower curves are drawn as separate polylines, matching the
-            # uncorrected path (avoids a spurious connecting stroke between the two).
+            # Eyeliner correction: use image-based edge detection when a gray
+            # image is available. The corrected flat array is split back into
+            # per-sub-array groups so that upper and lower curves are drawn as
+            # separate polylines, matching the uncorrected path (avoids a
+            # spurious connecting stroke between the two).
             if eyeliner_gray is not None and part in EYELINER_CORRECTION_MAP and isinstance(indices, dict):
                 corrected_flat = self._correct_eyeliner_points(coords, part, gray=eyeliner_gray)
                 h_m, w_m = image_shape
                 mask = np.zeros((h_m, w_m), dtype=np.uint8)
                 offset = 0
-                for _key, (sub_indices, _deltas) in EYELINER_CORRECTION_MAP[part].items():
+                for _key, sub_indices in EYELINER_CORRECTION_MAP[part].items():
                     n = len(sub_indices)
                     sub_points = corrected_flat[offset:offset + n]
                     offset += n
@@ -124,7 +89,7 @@ class FaceSegmenter:
                 mask = self._create_combined_mask(coords, indices, image_shape, seg_type)
             else:
                 # Expand midpoints and get coordinates
-                part_points = self._expand_indices_with_midpoints(indices, coords)
+                part_points = resolve_indices(indices, coords)
                 mask = self._create_mask_from_points(part_points, image_shape, seg_type)
 
             masks[part] = mask
@@ -152,7 +117,7 @@ class FaceSegmenter:
         mask = np.zeros((h, w), dtype=np.uint8)
 
         for key, indices in indices_dict.items():
-            part_points = self._expand_indices_with_midpoints(indices, coords)
+            part_points = resolve_indices(indices, coords)
             part_mask = self._create_mask_from_points(part_points, image_shape, seg_type)
             mask = cv2.bitwise_or(mask, part_mask)
 
@@ -234,19 +199,6 @@ class FaceSegmenter:
         """Preprocess RGB image for eyeliner edge detection. Returns (H, W) uint8 gray."""
         return self._corrector.preprocess(image)
 
-    def _find_eyeliner_edge(
-        self,
-        gray: np.ndarray,
-        px: float, py: float,
-        qx: float, qy: float,
-        return_debug_info: bool = False,
-    ) -> Union[Tuple[int, int], Tuple[Tuple[int, int], Optional[dict]]]:
-        """
-        Find the eyeliner edge along P->Q (t=0 to _T_MAX) via 2nd-derivative
-        zero-crossing. Returns (x, y) or ((x, y), Optional[dict]).
-        """
-        return self._corrector.find_edge(gray, px, py, qx, qy, return_debug_info)
-
     def _correct_eyeliner_points(
         self,
         coords: np.ndarray,
@@ -274,13 +226,13 @@ class FaceSegmenter:
         Run eyeliner correction and return per-point debug information.
 
         Args:
-            image: Original RGB image (H, W, 3) uint8.
+            image: Original image (H, W, 3) uint8.
             landmarks: Face landmarks.
             image_shape: (H, W).
             part_name: Eyeliner part name (e.g., 'eyeliner_left').
             side: Eye side label ('left' or 'right') stored in each entry.
             gray: Pre-computed grayscale from preprocess_for_eyeliner.
-                  If None, preprocessing runs internally.
+                  If None, preprocessing is run internally.
 
         Returns:
             List of debug dicts, one per corrected point.
@@ -383,15 +335,11 @@ class FaceSegmenter:
                               return_debug_info: bool = False) -> np.ndarray:
         """
         Draw ellipse on cheek surface using tangent plane coordinate system.
-        Uses cv2.fillPoly for polygon rasterization and quadratic surface fitting.
 
         Coordinate Systems:
-            - Face 3D Space (face3d_): MediaPipe normalized 3D coordinates (0-1)
-            - Tangent Plane Space (tangent_): Local UVW coordinate system on cheek surface
-                - U: horizontal direction along the cheek
-                - V: vertical direction along the cheek
-                - W: normal direction (perpendicular to UV plane)
-            - Image Space (img_px_): Pixel coordinates
+            - Face 3D Space: MediaPipe normalized 3D coordinates (0-1)
+            - Tangent Plane Space (UVW): Local coordinate system on cheek surface
+            - Image Space: Pixel coordinates
 
         Args:
             image_shape: (height, width).
@@ -408,273 +356,58 @@ class FaceSegmenter:
 
         img_height, img_width = image_shape
 
-        # Input validation
         if img_height <= 0 or img_width <= 0:
             raise ValueError(f"Invalid image_shape: {image_shape}. Both dimensions must be positive.")
 
         face3d_all_points = landmarks.points_3d
-
         if face3d_all_points is None:
-            # Return zero mask if no 3D info
             return np.zeros((img_height, img_width), dtype=np.float32)
 
-        # =================================================================
-        # 1. Extract cheek landmarks in both coordinate systems
-        # =================================================================
         cheek_indices = CHEEK_LEFT_INDICES if cheek_side == 'left' else CHEEK_RIGHT_INDICES
-        cheek_face3d = face3d_all_points[cheek_indices]  # Cheek points in Face 3D space
-        cheek_img_norm = landmarks.points[cheek_indices]  # Cheek points in normalized image space (0-1)
+        cheek_face3d = face3d_all_points[cheek_indices]
+        cheek_img_norm = landmarks.points[cheek_indices]
 
-        # =================================================================
-        # 2. Define landmarks for tangent plane coordinate system
-        # =================================================================
-        if cheek_side == 'left':
-            u_start_idx, u_end_idx = 50, 36    # Points defining U-axis direction
-            v_start_idx, v_end_idx = 118, 205  # Points defining V-axis direction
-        else:
-            u_start_idx, u_end_idx = 280, 266
-            v_start_idx, v_end_idx = 347, 425
+        # --- Step 1-5: Build tangent plane and fit surface ---
+        tangent_origin, basis_u, basis_v, basis_w, cheek_uvw, surface_coeffs = \
+            self._build_cheek_tangent_plane(face3d_all_points, cheek_face3d, cheek_side)
 
-        face3d_u_start = face3d_all_points[u_start_idx]
-        face3d_u_end = face3d_all_points[u_end_idx]
-        face3d_v_start = face3d_all_points[v_start_idx]
-        face3d_v_end = face3d_all_points[v_end_idx]
+        # --- Steps 6-9: Project ellipse to image pixel space ---
+        center_px_x, center_px_y, polygon_px, ellipse_face3d_points = \
+            self._project_ellipse_to_image(
+                tangent_origin, basis_u, basis_v, basis_w,
+                cheek_uvw, surface_coeffs, params, image_shape
+            )
 
-        # =================================================================
-        # 3. Build tangent plane coordinate system (UVW basis)
-        # =================================================================
-        # Origin: centroid of cheek landmarks in Face 3D space
-        tangent_origin_face3d = cheek_face3d.mean(axis=0)
-
-        # U-axis: horizontal direction along the cheek
-        u_direction_raw = face3d_u_end - face3d_u_start
-        tangent_basis_u = u_direction_raw / (np.linalg.norm(u_direction_raw) + 1e-6)
-
-        # V-axis: vertical direction (Gram-Schmidt orthogonalization to U)
-        v_direction_raw = face3d_v_end - face3d_v_start
-        v_direction_raw = v_direction_raw - np.dot(v_direction_raw, tangent_basis_u) * tangent_basis_u
-        tangent_basis_v = v_direction_raw / (np.linalg.norm(v_direction_raw) + 1e-6)
-
-        # W-axis: normal direction (cross product of U and V)
-        tangent_basis_w = np.cross(tangent_basis_u, tangent_basis_v)
-        tangent_basis_w = tangent_basis_w / (np.linalg.norm(tangent_basis_w) + 1e-6)
-
-        # =================================================================
-        # 4. Transform cheek landmarks to tangent plane coordinates (UVW)
-        # =================================================================
-        cheek_tangent_uvw = []
-        for pt_face3d in cheek_face3d:
-            vec_from_origin = pt_face3d - tangent_origin_face3d
-            tangent_u = np.dot(vec_from_origin, tangent_basis_u)
-            tangent_v = np.dot(vec_from_origin, tangent_basis_v)
-            tangent_w = np.dot(vec_from_origin, tangent_basis_w)
-            cheek_tangent_uvw.append([tangent_u, tangent_v, tangent_w])
-        cheek_tangent_uvw = np.array(cheek_tangent_uvw)
-
-        # =================================================================
-        # 5. Surface approximation (quadratic surface fitting in tangent space)
-        #    w = c0 + c1*u + c2*v + c3*u^2 + c4*v^2 + c5*u*v
-        # =================================================================
-        tangent_u_coords = cheek_tangent_uvw[:, 0]
-        tangent_v_coords = cheek_tangent_uvw[:, 1]
-        tangent_w_coords = cheek_tangent_uvw[:, 2]
-
-        # Design matrix for least squares fitting
-        design_matrix = np.column_stack([
-            np.ones_like(tangent_u_coords),
-            tangent_u_coords,
-            tangent_v_coords,
-            tangent_u_coords ** 2,
-            tangent_v_coords ** 2,
-            tangent_u_coords * tangent_v_coords
-        ])
-
-        # Least squares fitting
-        try:
-            surface_coeffs, _, _, _ = np.linalg.lstsq(design_matrix, tangent_w_coords, rcond=None)
-        except np.linalg.LinAlgError:
-            # Fall back to planar approximation on fitting failure
-            surface_coeffs = np.zeros(6)
-            surface_coeffs[0] = tangent_w_coords.mean()
-
-        # Surface evaluation function: tangent (u, v) -> w
-        def evaluate_surface_w(u, v):
-            return (surface_coeffs[0] + surface_coeffs[1] * u + surface_coeffs[2] * v +
-                    surface_coeffs[3] * u ** 2 + surface_coeffs[4] * v ** 2 + surface_coeffs[5] * u * v)
-
-        # =================================================================
-        # 6. Calculate tangent space UV range and define normalized space
-        # =================================================================
-        tangent_u_min = tangent_u_coords.min() if len(tangent_u_coords) > 0 else -0.1
-        tangent_u_max = tangent_u_coords.max() if len(tangent_u_coords) > 0 else 0.1
-        tangent_v_min = tangent_v_coords.min() if len(tangent_v_coords) > 0 else -0.1
-        tangent_v_max = tangent_v_coords.max() if len(tangent_v_coords) > 0 else 0.1
-
-        # Tangent space center and half-span
-        tangent_u_center = (tangent_u_max + tangent_u_min) / 2
-        tangent_v_center = (tangent_v_max + tangent_v_min) / 2
-        tangent_u_halfspan = (tangent_u_max - tangent_u_min) / 2
-        tangent_v_halfspan = (tangent_v_max - tangent_v_min) / 2
-
-        # =================================================================
-        # 7. Calculate ellipse parameters in tangent space
-        #    params.center in (-1, 1), params.radius in (0, 1]
-        # =================================================================
-        ellipse_tangent_center_u = tangent_u_center + params.center[0] * tangent_u_halfspan
-        ellipse_tangent_center_v = tangent_v_center + params.center[1] * tangent_v_halfspan
-        ellipse_tangent_radius_u = abs(params.radius[0]) * tangent_u_halfspan
-        ellipse_tangent_radius_v = abs(params.radius[1]) * tangent_v_halfspan
-
-        # Generate ellipse boundary points in tangent space (parametric form)
-        num_ellipse_samples = 50
-        theta = np.linspace(0, 2 * np.pi, num_ellipse_samples)
-        ellipse_tangent_u = ellipse_tangent_center_u + ellipse_tangent_radius_u * np.cos(theta)
-        ellipse_tangent_v = ellipse_tangent_center_v + ellipse_tangent_radius_v * np.sin(theta)
-
-        # =================================================================
-        # 8. Project ellipse boundary onto surface and convert to Face 3D space
-        # =================================================================
-        ellipse_face3d_points = []
-        for u, v in zip(ellipse_tangent_u, ellipse_tangent_v):
-            w = evaluate_surface_w(u, v)
-            # Convert tangent (u,v,w) back to Face 3D space
-            pt_face3d = (tangent_origin_face3d +
-                         u * tangent_basis_u +
-                         v * tangent_basis_v +
-                         w * tangent_basis_w)
-            ellipse_face3d_points.append(pt_face3d)
-        ellipse_face3d_points = np.array(ellipse_face3d_points)
-
-        # =================================================================
-        # 9. Generate 2D mask using Face3D projection
-        # =================================================================
-        # Project ellipse center from tangent space to image pixel space
-        center_tangent_w = evaluate_surface_w(ellipse_tangent_center_u, ellipse_tangent_center_v)
-        center_face3d = (tangent_origin_face3d +
-                         ellipse_tangent_center_u * tangent_basis_u +
-                         ellipse_tangent_center_v * tangent_basis_v +
-                         center_tangent_w * tangent_basis_w)
-        ellipse_img_px_center_x = center_face3d[0] * img_width
-        ellipse_img_px_center_y = center_face3d[1] * img_height
-
-        # Convert ellipse Face3D points to image pixel coordinates
-        ellipse_img_px_points = np.column_stack([
-            ellipse_face3d_points[:, 0] * img_width,
-            ellipse_face3d_points[:, 1] * img_height
-        ])
-
-        # Calculate bounding box for efficiency
-        bbox_x_min = max(0, int(ellipse_img_px_points[:, 0].min()) - 10)
-        bbox_x_max = min(img_width, int(ellipse_img_px_points[:, 0].max()) + 10)
-        bbox_y_min = max(0, int(ellipse_img_px_points[:, 1].min()) - 10)
-        bbox_y_max = min(img_height, int(ellipse_img_px_points[:, 1].max()) + 10)
-
-        # Create pixel grid within bounding box
-        bbox_ys, bbox_xs = np.meshgrid(
-            np.arange(bbox_y_min, bbox_y_max),
-            np.arange(bbox_x_min, bbox_x_max),
-            indexing="ij"
-        )
-
-        # =================================================================
-        # 10. Calculate normalized distance from center for each pixel
-        # =================================================================
-        # For each pixel, calculate distance to center relative to ellipse boundary
-
-        # Check which pixels are inside the ellipse polygon (cv2.fillPoly)
-        bbox_h = bbox_y_max - bbox_y_min
-        bbox_w = bbox_x_max - bbox_x_min
-        poly_mask = np.zeros((bbox_h, bbox_w), dtype=np.uint8)
-        local_poly = np.round(ellipse_img_px_points - np.array([[bbox_x_min, bbox_y_min]])).astype(np.int32)
-        cv2.fillPoly(poly_mask, [local_poly], 255)
-        pixels_inside_ellipse = poly_mask > 0
-
-        # Vector from center to each pixel
-        vec_from_center_x = bbox_xs - ellipse_img_px_center_x
-        vec_from_center_y = bbox_ys - ellipse_img_px_center_y
-
-        # Distance from center
-        dist_from_center = np.sqrt(vec_from_center_x ** 2 + vec_from_center_y ** 2)
-
-        # For each pixel, find the distance to ellipse boundary along the ray from center
-        # Approximate by finding the boundary point in the same direction
-        angle_from_center = np.arctan2(vec_from_center_y, vec_from_center_x)
-
-        # Calculate boundary distance for each angle
-        # Ellipse boundary points are sampled uniformly in theta
-        ellipse_angles = np.arctan2(
-            ellipse_img_px_points[:, 1] - ellipse_img_px_center_y,
-            ellipse_img_px_points[:, 0] - ellipse_img_px_center_x
-        )
-        ellipse_radii = np.sqrt(
-            (ellipse_img_px_points[:, 0] - ellipse_img_px_center_x) ** 2 +
-            (ellipse_img_px_points[:, 1] - ellipse_img_px_center_y) ** 2
-        )
-
-        # Interpolate boundary radius for each pixel's angle
-        # Sort by angle for interpolation
-        sort_idx = np.argsort(ellipse_angles)
-        sorted_angles = ellipse_angles[sort_idx]
-        sorted_radii = ellipse_radii[sort_idx]
-
-        # Extend for wrap-around interpolation
-        extended_angles = np.concatenate([
-            sorted_angles - 2 * np.pi,
-            sorted_angles,
-            sorted_angles + 2 * np.pi
-        ])
-        extended_radii = np.concatenate([sorted_radii, sorted_radii, sorted_radii])
-
-        # Interpolate boundary radius for each pixel
-        boundary_radius = np.interp(
-            angle_from_center.flatten(),
-            extended_angles,
-            extended_radii
-        ).reshape(angle_from_center.shape)
-
-        # Normalized distance (0 at center, 1 at boundary)
-        normalized_distance = dist_from_center / (boundary_radius + 1e-6)
-
-        # =================================================================
-        # 11. Create hard-edge mask (fadeout via blur_strength in blend())
-        # =================================================================
-        hard_mask_local = np.zeros_like(normalized_distance, dtype=np.float32)
-
-        # Inside ellipse: set to 1.0 (hard edge)
-        inside_mask = pixels_inside_ellipse & (normalized_distance <= 1.0)
-        hard_mask_local[inside_mask] = 1.0
-
-        # Combine into final mask
-        cheek_mask = np.zeros((img_height, img_width), dtype=np.float32)
-        cheek_mask[bbox_y_min:bbox_y_max, bbox_x_min:bbox_x_max] = hard_mask_local
-
-        result_mask = cheek_mask
-
-        # Calculate auxiliary values for debug_info
-        img_u_axis_unit = np.array([1.0, 0.0])  # Placeholder for compatibility
-        img_v_axis_unit = np.array([0.0, 1.0])
-        ellipse_img_px_radius_x = np.mean(ellipse_radii)
-        ellipse_img_px_radius_y = np.mean(ellipse_radii)
+        # --- Steps 10-11: Rasterize to float32 mask ---
+        result_mask = self._rasterize_ellipse_mask(center_px_x, center_px_y, polygon_px, image_shape)
 
         if return_debug_info:
+            tangent_u_coords = cheek_uvw[:, 0]
+            tangent_v_coords = cheek_uvw[:, 1]
+            tangent_u_min = float(tangent_u_coords.min())
+            tangent_u_max = float(tangent_u_coords.max())
+            tangent_v_min = float(tangent_v_coords.min())
+            tangent_v_max = float(tangent_v_coords.max())
+            tangent_u_center = (tangent_u_max + tangent_u_min) / 2
+            tangent_v_center = (tangent_v_max + tangent_v_min) / 2
+            tangent_u_halfspan = (tangent_u_max - tangent_u_min) / 2
+            tangent_v_halfspan = (tangent_v_max - tangent_v_min) / 2
+
+            ellipse_radii = np.sqrt(
+                (polygon_px[:, 0] - center_px_x) ** 2 +
+                (polygon_px[:, 1] - center_px_y) ** 2
+            )
             debug_info = {
-                # Tangent plane coordinate system (in Face 3D space)
-                'tangent_origin_face3d': tangent_origin_face3d,
-                'tangent_basis_u': tangent_basis_u,
-                'tangent_basis_v': tangent_basis_v,
-                'tangent_basis_w': tangent_basis_w,
-
-                # Ellipse in image pixel space
-                'ellipse_img_px_center_x': ellipse_img_px_center_x,
-                'ellipse_img_px_center_y': ellipse_img_px_center_y,
-                'ellipse_img_px_radius_x': ellipse_img_px_radius_x,
-                'ellipse_img_px_radius_y': ellipse_img_px_radius_y,
-
-                # Projected tangent axes in image space (unit vectors)
-                'img_u_axis_unit': img_u_axis_unit,
-                'img_v_axis_unit': img_v_axis_unit,
-
-                # Tangent space UV range
+                'tangent_origin_face3d': tangent_origin,
+                'tangent_basis_u': basis_u,
+                'tangent_basis_v': basis_v,
+                'tangent_basis_w': basis_w,
+                'ellipse_img_px_center_x': center_px_x,
+                'ellipse_img_px_center_y': center_px_y,
+                'ellipse_img_px_radius_x': float(np.mean(ellipse_radii)),
+                'ellipse_img_px_radius_y': float(np.mean(ellipse_radii)),
+                'img_u_axis_unit': np.array([1.0, 0.0]),
+                'img_v_axis_unit': np.array([0.0, 1.0]),
                 'tangent_u_min': tangent_u_min,
                 'tangent_u_max': tangent_u_max,
                 'tangent_v_min': tangent_v_min,
@@ -683,21 +416,235 @@ class FaceSegmenter:
                 'tangent_v_center': tangent_v_center,
                 'tangent_u_halfspan': tangent_u_halfspan,
                 'tangent_v_halfspan': tangent_v_halfspan,
-
-                # Ellipse parameters in tangent space
-                'ellipse_tangent_center_u': ellipse_tangent_center_u,
-                'ellipse_tangent_center_v': ellipse_tangent_center_v,
-                'ellipse_tangent_radius_u': ellipse_tangent_radius_u,
-                'ellipse_tangent_radius_v': ellipse_tangent_radius_v,
-
-                # Surface fitting coefficients
+                'ellipse_tangent_center_u': tangent_u_center + params.center[0] * tangent_u_halfspan,
+                'ellipse_tangent_center_v': tangent_v_center + params.center[1] * tangent_v_halfspan,
+                'ellipse_tangent_radius_u': abs(params.radius[0]) * tangent_u_halfspan,
+                'ellipse_tangent_radius_v': abs(params.radius[1]) * tangent_v_halfspan,
                 'surface_coeffs': surface_coeffs,
-
-                # For visualization
                 'ellipse_face3d_points': ellipse_face3d_points,
-                'cheek_tangent_uvw': cheek_tangent_uvw,
+                'cheek_tangent_uvw': cheek_uvw,
                 'cheek_img_norm': cheek_img_norm,
             }
             return result_mask, debug_info
 
         return result_mask
+
+    def _build_cheek_tangent_plane(
+        self,
+        face3d_all_points: np.ndarray,
+        cheek_face3d: np.ndarray,
+        cheek_side: str,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Build UVW tangent-plane basis and fit a quadratic surface to cheek landmarks.
+
+        Steps 1-5 of the 3D cheek mask algorithm:
+          1. Look up axis-defining landmark indices for the requested side.
+          2. Compute Gram-Schmidt orthonormal basis (U, V, W).
+          3. Project cheek landmarks into the tangent-plane (UVW) coordinates.
+          4. Fit a quadratic surface w = f(u, v) via least squares.
+
+        Args:
+            face3d_all_points: All 478 face landmarks in normalized 3D space.
+            cheek_face3d: Subset of cheek landmark points (N, 3).
+            cheek_side: 'left' or 'right'.
+
+        Returns:
+            Tuple of (origin, basis_u, basis_v, basis_w, cheek_uvw, surface_coeffs).
+            - origin: (3,) centroid of cheek landmarks in Face 3D space.
+            - basis_u/v/w: (3,) orthonormal basis vectors.
+            - cheek_uvw: (N, 3) cheek landmarks in tangent-plane coordinates.
+            - surface_coeffs: (6,) quadratic surface coefficients [c0..c5].
+        """
+        if cheek_side == 'left':
+            u_start_idx, u_end_idx = 50, 36
+            v_start_idx, v_end_idx = 118, 205
+        else:
+            u_start_idx, u_end_idx = 280, 266
+            v_start_idx, v_end_idx = 347, 425
+
+        # Build orthonormal UVW basis
+        origin = cheek_face3d.mean(axis=0)
+
+        u_raw = face3d_all_points[u_end_idx] - face3d_all_points[u_start_idx]
+        basis_u = u_raw / (np.linalg.norm(u_raw) + 1e-6)
+
+        v_raw = face3d_all_points[v_end_idx] - face3d_all_points[v_start_idx]
+        v_raw = v_raw - np.dot(v_raw, basis_u) * basis_u  # Gram-Schmidt
+        basis_v = v_raw / (np.linalg.norm(v_raw) + 1e-6)
+
+        basis_w = np.cross(basis_u, basis_v)
+        basis_w = basis_w / (np.linalg.norm(basis_w) + 1e-6)
+
+        # Project cheek landmarks to tangent-plane coordinates
+        vecs = cheek_face3d - origin  # (N, 3)
+        cheek_uvw = np.column_stack([
+            vecs @ basis_u,
+            vecs @ basis_v,
+            vecs @ basis_w,
+        ])
+
+        # Quadratic surface fit: w = c0 + c1*u + c2*v + c3*u^2 + c4*v^2 + c5*u*v
+        u_c = cheek_uvw[:, 0]
+        v_c = cheek_uvw[:, 1]
+        w_c = cheek_uvw[:, 2]
+        design = np.column_stack([
+            np.ones_like(u_c), u_c, v_c, u_c ** 2, v_c ** 2, u_c * v_c
+        ])
+        try:
+            surface_coeffs, _, _, _ = np.linalg.lstsq(design, w_c, rcond=None)
+        except np.linalg.LinAlgError:
+            surface_coeffs = np.zeros(6)
+            surface_coeffs[0] = w_c.mean()
+
+        return origin, basis_u, basis_v, basis_w, cheek_uvw, surface_coeffs
+
+    def _project_ellipse_to_image(
+        self,
+        tangent_origin: np.ndarray,
+        basis_u: np.ndarray,
+        basis_v: np.ndarray,
+        basis_w: np.ndarray,
+        cheek_uvw: np.ndarray,
+        surface_coeffs: np.ndarray,
+        params: CheekParams,
+        image_shape: Tuple[int, int],
+    ) -> Tuple[float, float, np.ndarray, np.ndarray]:
+        """
+        Compute ellipse parameters in tangent space and project to image pixel coordinates.
+
+        Steps 6-9 of the 3D cheek mask algorithm.
+
+        Args:
+            tangent_origin: (3,) origin of the tangent plane in Face 3D space.
+            basis_u/v/w: (3,) orthonormal basis vectors.
+            cheek_uvw: (N, 3) cheek landmarks in tangent-plane coordinates.
+            surface_coeffs: (6,) quadratic surface coefficients.
+            params: CheekParams with center and radius in normalised tangent space.
+            image_shape: (height, width) in pixels.
+
+        Returns:
+            (center_px_x, center_px_y, polygon_px, ellipse_face3d_points)
+            - center_px_x/y: ellipse center in pixel coordinates.
+            - polygon_px: (50, 2) ellipse boundary polygon in pixel coordinates.
+            - ellipse_face3d_points: (50, 3) ellipse boundary in Face 3D space.
+        """
+        img_height, img_width = image_shape
+
+        def _eval_w(u, v):
+            c = surface_coeffs
+            return c[0] + c[1] * u + c[2] * v + c[3] * u ** 2 + c[4] * v ** 2 + c[5] * u * v
+
+        u_c = cheek_uvw[:, 0]
+        v_c = cheek_uvw[:, 1]
+        u_min = u_c.min() if len(u_c) > 0 else -0.1
+        u_max = u_c.max() if len(u_c) > 0 else 0.1
+        v_min = v_c.min() if len(v_c) > 0 else -0.1
+        v_max = v_c.max() if len(v_c) > 0 else 0.1
+
+        u_center = (u_max + u_min) / 2
+        v_center = (v_max + v_min) / 2
+        u_halfspan = (u_max - u_min) / 2
+        v_halfspan = (v_max - v_min) / 2
+
+        ell_cu = u_center + params.center[0] * u_halfspan
+        ell_cv = v_center + params.center[1] * v_halfspan
+        ell_ru = abs(params.radius[0]) * u_halfspan
+        ell_rv = abs(params.radius[1]) * v_halfspan
+
+        theta = np.linspace(0, 2 * np.pi, 50)
+        ell_us = ell_cu + ell_ru * np.cos(theta)
+        ell_vs = ell_cv + ell_rv * np.sin(theta)
+
+        # Project ellipse boundary: tangent UVW -> Face 3D -> image pixels
+        face3d_pts = np.array([
+            tangent_origin + u * basis_u + v * basis_v + _eval_w(u, v) * basis_w
+            for u, v in zip(ell_us, ell_vs)
+        ])
+        polygon_px = np.column_stack([
+            face3d_pts[:, 0] * img_width,
+            face3d_pts[:, 1] * img_height,
+        ])
+
+        # Project ellipse center
+        center_w = _eval_w(ell_cu, ell_cv)
+        center_face3d = tangent_origin + ell_cu * basis_u + ell_cv * basis_v + center_w * basis_w
+        center_px_x = float(center_face3d[0] * img_width)
+        center_px_y = float(center_face3d[1] * img_height)
+
+        return center_px_x, center_px_y, polygon_px, face3d_pts
+
+    def _rasterize_ellipse_mask(
+        self,
+        center_px_x: float,
+        center_px_y: float,
+        polygon_px: np.ndarray,
+        image_shape: Tuple[int, int],
+    ) -> np.ndarray:
+        """
+        Rasterize a polygon to a float32 hard-edge mask using distance-based fill.
+
+        Steps 10-11 of the 3D cheek mask algorithm.
+
+        Args:
+            center_px_x/y: Ellipse center in pixel coordinates.
+            polygon_px: (N, 2) boundary polygon in pixel coordinates.
+            image_shape: (height, width) in pixels.
+
+        Returns:
+            Float32 mask (h, w) with 1.0 inside the polygon and 0.0 outside.
+        """
+        img_height, img_width = image_shape
+
+        bbox_x_min = max(0, int(polygon_px[:, 0].min()) - 10)
+        bbox_x_max = min(img_width, int(polygon_px[:, 0].max()) + 10)
+        bbox_y_min = max(0, int(polygon_px[:, 1].min()) - 10)
+        bbox_y_max = min(img_height, int(polygon_px[:, 1].max()) + 10)
+
+        bbox_h = bbox_y_max - bbox_y_min
+        bbox_w = bbox_x_max - bbox_x_min
+
+        # Rasterize polygon interior
+        poly_mask = np.zeros((bbox_h, bbox_w), dtype=np.uint8)
+        local_poly = np.round(polygon_px - np.array([[bbox_x_min, bbox_y_min]])).astype(np.int32)
+        cv2.fillPoly(poly_mask, [local_poly], 255)
+        pixels_inside = poly_mask > 0
+
+        # Pixel grid within bbox
+        bbox_ys, bbox_xs = np.meshgrid(
+            np.arange(bbox_y_min, bbox_y_max),
+            np.arange(bbox_x_min, bbox_x_max),
+            indexing="ij"
+        )
+
+        # Normalized distance from center (0 = center, 1 = boundary)
+        dx = bbox_xs - center_px_x
+        dy = bbox_ys - center_px_y
+        dist = np.sqrt(dx ** 2 + dy ** 2)
+
+        ellipse_angles = np.arctan2(
+            polygon_px[:, 1] - center_px_y,
+            polygon_px[:, 0] - center_px_x,
+        )
+        ellipse_radii = np.sqrt(
+            (polygon_px[:, 0] - center_px_x) ** 2 +
+            (polygon_px[:, 1] - center_px_y) ** 2
+        )
+        sort_idx = np.argsort(ellipse_angles)
+        sorted_angles = ellipse_angles[sort_idx]
+        sorted_radii = ellipse_radii[sort_idx]
+        ext_angles = np.concatenate([sorted_angles - 2 * np.pi, sorted_angles, sorted_angles + 2 * np.pi])
+        ext_radii = np.concatenate([sorted_radii, sorted_radii, sorted_radii])
+
+        boundary_r = np.interp(
+            np.arctan2(dy, dx).flatten(), ext_angles, ext_radii
+        ).reshape(dy.shape)
+
+        norm_dist = dist / (boundary_r + 1e-6)
+
+        hard_mask = np.zeros_like(norm_dist, dtype=np.float32)
+        hard_mask[pixels_inside & (norm_dist <= 1.0)] = 1.0
+
+        cheek_mask = np.zeros((img_height, img_width), dtype=np.float32)
+        cheek_mask[bbox_y_min:bbox_y_max, bbox_x_min:bbox_x_max] = hard_mask
+        return cheek_mask

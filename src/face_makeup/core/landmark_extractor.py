@@ -35,6 +35,7 @@ class LandmarkExtractor:
             min_detection_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence
         )
+        self._closed = False
 
     def extract(self, image: np.ndarray) -> FaceLandmarks:
         """
@@ -110,7 +111,19 @@ class LandmarkExtractor:
 
         return landmarks_list
 
-    def __del__(self):
+    def close(self) -> None:
         """Release resources."""
+        if getattr(self, '_closed', False):
+            return
         if hasattr(self, 'face_mesh'):
             self.face_mesh.close()
+        self._closed = True
+
+    def __enter__(self) -> "LandmarkExtractor":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self.close()
+
+    def __del__(self):
+        self.close()

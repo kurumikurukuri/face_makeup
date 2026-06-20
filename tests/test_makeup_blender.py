@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from face_makeup.core.makeup_blender import MakeupBlender
-from face_makeup.core.types import ColorParams
+from face_makeup.core.types import ColorParams, EyeIrisParams
 
 
 @pytest.fixture
@@ -355,53 +355,70 @@ class TestSoftenMask:
         assert result[0, 0] == 0.0
 
 
-class TestCreateEyeirisMaskTypeConversion:
-    """Tests for _create_eyeiris_mask type conversion fallbacks (coverage gaps)."""
+class TestBlendEyeiris:
+    """Tests for blend_eyeiris (covers uint8/float32 mask handling and eye_mask clipping)."""
 
-    def test_uint8_iris_mask_accepted(self, blender):
-        """Test that uint8 iris mask is accepted (line 261 coverage)."""
-        # Create uint8 masks (0/255 format)
-        eyeiris_mask = np.zeros((100, 100), dtype=np.uint8)
-        eyeiris_mask[40:60, 40:60] = 255  # Iris region
+    @pytest.fixture
+    def iris_params(self):
+        return EyeIrisParams(color_params=ColorParams(target_rgb=(0, 100, 200)), opacity=0.8)
 
-        eye_mask = np.zeros((100, 100), dtype=np.uint8)
-        eye_mask[30:70, 30:70] = 255  # Eye region
+    def test_uint8_mask_accepted(self, blender, sample_image, iris_params):
+        """uint8 mask is accepted and converted internally."""
+        mask = np.zeros((100, 100), dtype=np.uint8)
+        mask[40:60, 40:60] = 255
+        eye_mask = np.ones((100, 100), dtype=np.uint8) * 255
 
-        # Should not raise - uint8 is accepted
-        result = blender._create_eyeiris_mask(eyeiris_mask, eye_mask)
+        result = blender.blend_eyeiris(sample_image, mask, eye_mask, iris_params)
 
-        # Result should be float32 in range [0, 1]
-        assert result.dtype == np.float32
-        assert result.shape == eyeiris_mask.shape
-        assert result.min() >= 0.0
-        assert result.max() <= 1.0
+        assert result.dtype == np.uint8
+        assert result.shape == sample_image.shape
 
-    def test_uint8_eye_mask_accepted(self, blender):
-        """Test that uint8 eye mask is accepted (line 266 coverage)."""
-        # Float32 iris mask, uint8 eye mask
+    def test_float32_mask_accepted(self, blender, sample_image, iris_params):
+        """float32 mask is accepted without conversion."""
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[40:60, 40:60] = 1.0
+        eye_mask = np.ones((100, 100), dtype=np.float32)
+
+        result = blender.blend_eyeiris(sample_image, mask, eye_mask, iris_params)
+
+        assert result.dtype == np.uint8
+        assert result.shape == sample_image.shape
+
+    def test_color_applied_in_masked_region(self, blender, iris_params):
+        """Color is applied inside mask; unmasked region is unchanged."""
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[40:60, 40:60] = 1.0
+        eye_mask = np.ones((100, 100), dtype=np.float32)
+
+        result = blender.blend_eyeiris(image, mask, eye_mask, iris_params)
+
+        # Outside mask: pixel unchanged
+        np.testing.assert_array_equal(result[0, 0], image[0, 0])
+        # Inside mask: pixel differs from original gray
+        assert not np.array_equal(result[50, 50], image[50, 50])
+
+    def test_eye_mask_clips_iris_mask(self, blender, iris_params):
+        """Iris color should not bleed outside eye_mask even if eyeiris_mask covers it."""
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+        # Iris mask (ellipse) overlaps eyelid skin outside the eye opening
         eyeiris_mask = np.zeros((100, 100), dtype=np.float32)
-        eyeiris_mask[40:60, 40:60] = 1.0
+        eyeiris_mask[30:70, 30:70] = 1.0
+        # Eye opening only covers the lower half of that region
+        eye_mask = np.zeros((100, 100), dtype=np.float32)
+        eye_mask[50:70, 30:70] = 1.0
 
-        eye_mask = np.zeros((100, 100), dtype=np.uint8)
-        eye_mask[30:70, 30:70] = 255  # uint8 format
+        result = blender.blend_eyeiris(image, eyeiris_mask, eye_mask, iris_params)
 
-        result = blender._create_eyeiris_mask(eyeiris_mask, eye_mask)
+        # Inside iris mask but outside eye_mask: unaffected (clipped)
+        np.testing.assert_array_equal(result[35, 50], image[35, 50])
+        # Inside both masks: color applied
+        assert not np.array_equal(result[60, 50], image[60, 50])
 
-        assert result.dtype == np.float32
-        assert result.shape == eyeiris_mask.shape
+    def test_none_eye_mask_raises(self, blender, sample_image, iris_params):
+        """eye_mask is required; None should raise ValueError."""
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[40:60, 40:60] = 1.0
 
-    def test_both_uint8_masks(self, blender):
-        """Test with both masks in uint8 format."""
-        eyeiris_mask = np.zeros((100, 100), dtype=np.uint8)
-        eyeiris_mask[40:60, 40:60] = 255
-
-        eye_mask = np.zeros((100, 100), dtype=np.uint8)
-        eye_mask[30:70, 30:70] = 255
-
-        result = blender._create_eyeiris_mask(eyeiris_mask, eye_mask)
-
-        # Should correctly combine the masks
-        assert result.dtype == np.float32
-        # Iris should be limited to eye region
-        assert result[50, 50] > 0.9  # Inside both masks
-        assert result[45, 45] > 0.9  # Inside both masks
+        with pytest.raises(ValueError, match="eye_mask"):
+            blender.blend_eyeiris(sample_image, mask, None, iris_params)

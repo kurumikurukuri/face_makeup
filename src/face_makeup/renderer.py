@@ -256,7 +256,8 @@ class Renderer:
 
         Args:
             layers: List of MakeupLayer with masks already assigned.
-                    Modified in-place.
+                    layer.mask is replaced with a new array; the original is
+                    never mutated.
         """
         # Filter layers with masks
         layers_with_masks = [layer for layer in layers if layer.mask is not None]
@@ -281,9 +282,11 @@ class Renderer:
 
             # Subtract masks from higher priority types (already processed)
             # Same type overlap is OK (don't subtract from same type)
+            new_mask = layer.mask
             for other_type, used_mask in type_used_masks.items():
                 if other_type != params_type:
-                    layer.mask = np.clip(layer.mask - used_mask, 0, 1)
+                    new_mask = np.clip(new_mask - used_mask, 0, 1)
+            layer.mask = new_mask
 
             # Update used mask for this type
             if params_type not in type_used_masks:
