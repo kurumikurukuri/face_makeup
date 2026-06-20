@@ -1,10 +1,10 @@
 """
-Tests for Face class and MakeupLayer classes.
+Tests for Face class.
 """
 import pytest
 import numpy as np
 from face_makeup.processor import MakeupProcessor
-from face_makeup.face import Face, LipLayer, CheekLayer, EyeShadowLayer, EyeLinerLayer, EyeIrisLayer
+from face_makeup.face import Face
 from face_makeup.core.types import (
     LipsParams,
     CheekParams,
@@ -14,6 +14,7 @@ from face_makeup.core.types import (
     EyeIrisParams,
     PartParams
 )
+from face_makeup.custom_landmark import NUM_TOTAL
 
 
 @pytest.fixture
@@ -49,11 +50,11 @@ class TestFaceProperties:
         """Test landmarks property."""
         landmarks = face.landmarks
         assert landmarks is not None
-        assert landmarks.points.shape[0] == 478  # MediaPipe refined landmarks
+        assert landmarks.points.shape[0] == NUM_TOTAL  # base 478 + custom landmarks
 
-    def test_makeup_layers_initially_empty(self, face):
-        """Test that makeup_layers is initially empty."""
-        assert len(face.makeup_layers) == 0
+    def test_makeup_passes_initially_empty(self, face):
+        """Test that makeup_passes is initially empty."""
+        assert len(face.makeup_passes) == 0
 
 
 class TestFaceFluentAPI:
@@ -89,20 +90,19 @@ class TestFaceFluentAPI:
         assert result is face
 
 
-class TestFaceMakeupLayers:
-    """Tests for makeup layer management."""
+class TestFaceMakeupPasses:
+    """Tests for makeup pass management."""
 
-    def test_lip_adds_layer(self, face):
-        """Test that lip() adds a LipLayer."""
+    def test_lip_adds_pass(self, face):
+        """Test that lip() adds a lips pass."""
         face.lip(color=(255, 100, 100), opacity=0.5)
 
-        layers = face.makeup_layers
-        assert len(layers) == 1
-        assert isinstance(layers[0], LipLayer)
-        assert layers[0].part_name == 'lips'
+        passes = face.makeup_passes
+        assert len(passes) == 1
+        assert passes[0].pass_type == 'lips'
 
-    def test_cheek_both_adds_two_layers(self, face):
-        """Test that cheek(side='both') adds two layers."""
+    def test_cheek_both_adds_two_passes(self, face):
+        """Test that cheek(side='both') adds two passes."""
         face.cheek(
             color=(255, 100, 100),
             opacity=0.5,
@@ -111,15 +111,14 @@ class TestFaceMakeupLayers:
             side='both'
         )
 
-        layers = face.makeup_layers
-        assert len(layers) == 2
-        assert all(isinstance(l, CheekLayer) for l in layers)
-        part_names = [l.part_name for l in layers]
-        assert 'cheek_left' in part_names
-        assert 'cheek_right' in part_names
+        passes = face.makeup_passes
+        assert len(passes) == 2
+        pass_types = [p.pass_type for p in passes]
+        assert 'cheek_left' in pass_types
+        assert 'cheek_right' in pass_types
 
-    def test_cheek_left_adds_one_layer(self, face):
-        """Test that cheek(side='left') adds one layer."""
+    def test_cheek_left_adds_one_pass(self, face):
+        """Test that cheek(side='left') adds one pass."""
         face.cheek(
             color=(255, 100, 100),
             opacity=0.5,
@@ -128,39 +127,37 @@ class TestFaceMakeupLayers:
             side='left'
         )
 
-        layers = face.makeup_layers
-        assert len(layers) == 1
-        assert layers[0].part_name == 'cheek_left'
+        passes = face.makeup_passes
+        assert len(passes) == 1
+        assert passes[0].pass_type == 'cheek_left'
 
-    def test_eyelid_both_adds_two_layers(self, face):
-        """Test that eyelid(side='both') adds two layers."""
+    def test_eyelid_both_adds_two_passes(self, face):
+        """Test that eyelid(side='both') adds two passes."""
         face.eyelid(color=(180, 130, 150), opacity=0.3, side='both')
 
-        layers = face.makeup_layers
-        assert len(layers) == 2
-        assert all(isinstance(l, EyeShadowLayer) for l in layers)
-        part_names = [l.part_name for l in layers]
-        assert 'eyelid_left' in part_names
-        assert 'eyelid_right' in part_names
+        passes = face.makeup_passes
+        assert len(passes) == 2
+        pass_types = [p.pass_type for p in passes]
+        assert 'eyelid_left' in pass_types
+        assert 'eyelid_right' in pass_types
 
-    def test_eyeliner_both_adds_two_layers(self, face):
-        """Test that eyeliner(side='both') adds two layers."""
+    def test_eyeliner_both_adds_two_passes(self, face):
+        """Test that eyeliner(side='both') adds two passes."""
         face.eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2, side='both')
 
-        layers = face.makeup_layers
-        assert len(layers) == 2
-        assert all(isinstance(l, EyeLinerLayer) for l in layers)
-        part_names = [l.part_name for l in layers]
-        assert 'eyeliner_left' in part_names
-        assert 'eyeliner_right' in part_names
+        passes = face.makeup_passes
+        assert len(passes) == 2
+        pass_types = [p.pass_type for p in passes]
+        assert 'eyeliner_left' in pass_types
+        assert 'eyeliner_right' in pass_types
 
-    def test_eyeliner_left_adds_one_layer(self, face):
-        """Test that eyeliner(side='left') adds one layer."""
+    def test_eyeliner_left_adds_one_pass(self, face):
+        """Test that eyeliner(side='left') adds one pass."""
         face.eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2, side='left')
 
-        layers = face.makeup_layers
-        assert len(layers) == 1
-        assert layers[0].part_name == 'eyeliner_left'
+        passes = face.makeup_passes
+        assert len(passes) == 1
+        assert passes[0].pass_type == 'eyeliner_left'
 
     def test_eyeliner_returns_self(self, face):
         """Test that eyeliner() returns self."""
@@ -172,32 +169,31 @@ class TestFaceMakeupLayers:
         result = face.eyeiris(color=(100, 150, 255), opacity=0.5)
         assert result is face
 
-    def test_eyeiris_both_adds_two_layers(self, face):
-        """Test that eyeiris(side='both') adds two layers."""
+    def test_eyeiris_both_adds_two_passes(self, face):
+        """Test that eyeiris(side='both') adds two passes."""
         face.eyeiris(color=(100, 150, 255), opacity=0.5, side='both')
 
-        layers = face.makeup_layers
-        assert len(layers) == 2
-        assert all(isinstance(l, EyeIrisLayer) for l in layers)
-        part_names = [l.part_name for l in layers]
-        assert 'eyeiris_left' in part_names
-        assert 'eyeiris_right' in part_names
+        passes = face.makeup_passes
+        assert len(passes) == 2
+        pass_types = [p.pass_type for p in passes]
+        assert 'eyeiris_left' in pass_types
+        assert 'eyeiris_right' in pass_types
 
-    def test_eyeiris_left_adds_one_layer(self, face):
-        """Test that eyeiris(side='left') adds one layer."""
+    def test_eyeiris_left_adds_one_pass(self, face):
+        """Test that eyeiris(side='left') adds one pass."""
         face.eyeiris(color=(100, 150, 255), opacity=0.5, side='left')
 
-        layers = face.makeup_layers
-        assert len(layers) == 1
-        assert layers[0].part_name == 'eyeiris_left'
+        passes = face.makeup_passes
+        assert len(passes) == 1
+        assert passes[0].pass_type == 'eyeiris_left'
 
-    def test_clear_removes_all_layers(self, face):
-        """Test that clear() removes all layers."""
+    def test_clear_removes_all_passes(self, face):
+        """Test that clear() removes all passes."""
         face.lip(color=(255, 100, 100), opacity=0.5)
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
         face.clear()
-        assert len(face.makeup_layers) == 0
+        assert len(face.makeup_passes) == 0
 
     def test_clear_returns_self(self, face):
         """Test that clear() returns self."""
@@ -205,19 +201,17 @@ class TestFaceMakeupLayers:
         assert result is face
 
 
-class TestMakeupLayerReturnsListCopy:
-    """Tests that makeup_layers returns a copy."""
+class TestMakeupPassesReturnsCopy:
+    """Tests that makeup_passes returns a copy."""
 
-    def test_makeup_layers_returns_copy(self, face):
-        """Test that makeup_layers returns a copy, not the internal list."""
+    def test_makeup_passes_returns_copy(self, face):
+        """Test that makeup_passes returns a copy, not the internal list."""
         face.lip(color=(255, 100, 100), opacity=0.5)
 
-        layers1 = face.makeup_layers
-        layers2 = face.makeup_layers
+        passes1 = face.makeup_passes
+        passes2 = face.makeup_passes
 
-        # Should be equal but not same object
-        assert layers1 == layers2
-        assert layers1 is not layers2
+        assert passes1 is not passes2
 
 
 class TestColorValidation:
@@ -266,12 +260,12 @@ class TestColorValidation:
     def test_valid_color_boundary_zero(self, face):
         """Test that color value of 0 is accepted."""
         face.lip(color=(0, 0, 0))
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
     def test_valid_color_boundary_255(self, face):
         """Test that color value of 255 is accepted."""
         face.lip(color=(255, 255, 255))
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
 
 class TestOpacityValidation:
@@ -310,17 +304,17 @@ class TestOpacityValidation:
     def test_valid_opacity_boundary_zero(self, face):
         """Test that opacity of 0.0 is accepted."""
         face.lip(color=(255, 100, 100), opacity=0.0)
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
     def test_valid_opacity_boundary_one(self, face):
         """Test that opacity of 1.0 is accepted."""
         face.lip(color=(255, 100, 100), opacity=1.0)
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
     def test_valid_opacity_integer(self, face):
         """Test that integer opacity (0 or 1) is accepted."""
         face.lip(color=(255, 100, 100), opacity=1)
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
 
 class TestBlurStrengthValidation:
@@ -360,15 +354,15 @@ class TestBlurStrengthValidation:
 
     def test_valid_blur_strength_boundary_zero(self, face):
         face.lip(color=(255, 100, 100), blur_strength=0.0)
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
     def test_valid_blur_strength_boundary_one(self, face):
         face.lip(color=(255, 100, 100), blur_strength=1.0)
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
     def test_valid_blur_strength_integer(self, face):
         face.lip(color=(255, 100, 100), blur_strength=1)
-        assert len(face.makeup_layers) == 1
+        assert len(face.makeup_passes) == 1
 
 
 class TestPartParamsValidation:

@@ -5,17 +5,17 @@ Verifies the new naming conventions for coordinate systems.
 """
 import pytest
 import numpy as np
-from face_makeup.core.segmenter import FaceSegmenter
+from face_makeup.core.passes.cheek import CheekBlendStrategy
 from face_makeup.core.types import CheekParams, ColorParams, FaceLandmarks
 
 
 class TestEllipseMaskDebugInfo:
-    """Test debug_info dictionary returned by _create_cheek_mask methods."""
+    """Test debug_info dictionary returned by CheekBlendStrategy.create_cheek_mask."""
 
     @pytest.fixture
-    def segmenter(self):
-        """Create FaceSegmenter instance."""
-        return FaceSegmenter()
+    def strategy(self):
+        """Create CheekBlendStrategy instance."""
+        return CheekBlendStrategy('left')
 
     @pytest.fixture
     def cheek_params(self):
@@ -52,9 +52,9 @@ class TestEllipseMaskDebugInfo:
         points_2d = points_2d * 0.5 + 0.25
         return FaceLandmarks(points=points_2d, points_3d=None)
 
-    def test_debug_info_2d_mode(self, segmenter, cheek_params, base_mask, landmarks_2d_only):
+    def test_debug_info_2d_mode(self, strategy, cheek_params, base_mask, landmarks_2d_only):
         """Test debug_info in 2D mode (no 3D landmarks)."""
-        result = segmenter.create_cheek_mask(
+        result = strategy.create_cheek_mask(
             image_shape=(100, 100),
             base_mask=base_mask,
             params=cheek_params,
@@ -67,9 +67,9 @@ class TestEllipseMaskDebugInfo:
         mask, debug_info = result
         assert debug_info.get('mode') == '2d'
 
-    def test_debug_info_3d_mode_keys(self, segmenter, cheek_params, base_mask, landmarks_3d):
+    def test_debug_info_3d_mode_keys(self, strategy, cheek_params, base_mask, landmarks_3d):
         """Test that 3D mode debug_info contains all required keys."""
-        result = segmenter.create_cheek_mask(
+        result = strategy.create_cheek_mask(
             image_shape=(100, 100),
             base_mask=base_mask,
             params=cheek_params,
@@ -126,9 +126,9 @@ class TestEllipseMaskDebugInfo:
         for key in required_keys:
             assert key in debug_info, f"Missing key: '{key}'"
 
-    def test_surface_coeffs_shape(self, segmenter, cheek_params, base_mask, landmarks_3d):
+    def test_surface_coeffs_shape(self, strategy, cheek_params, base_mask, landmarks_3d):
         """Test that surface_coeffs has correct shape for quadratic surface."""
-        result = segmenter.create_cheek_mask(
+        result = strategy.create_cheek_mask(
             image_shape=(100, 100),
             base_mask=base_mask,
             params=cheek_params,
@@ -143,9 +143,9 @@ class TestEllipseMaskDebugInfo:
         assert isinstance(surface_coeffs, np.ndarray)
         assert surface_coeffs.shape == (6,)
 
-    def test_ellipse_face3d_points_shape(self, segmenter, cheek_params, base_mask, landmarks_3d):
+    def test_ellipse_face3d_points_shape(self, strategy, cheek_params, base_mask, landmarks_3d):
         """Test that ellipse_face3d_points has correct structure."""
-        result = segmenter.create_cheek_mask(
+        result = strategy.create_cheek_mask(
             image_shape=(100, 100),
             base_mask=base_mask,
             params=cheek_params,
@@ -161,9 +161,9 @@ class TestEllipseMaskDebugInfo:
         assert len(ellipse_face3d.shape) == 2
         assert ellipse_face3d.shape[1] == 3
 
-    def test_tangent_basis_orthogonal(self, segmenter, cheek_params, base_mask, landmarks_3d):
+    def test_tangent_basis_orthogonal(self, strategy, cheek_params, base_mask, landmarks_3d):
         """Test that tangent basis vectors are approximately orthogonal."""
-        result = segmenter.create_cheek_mask(
+        result = strategy.create_cheek_mask(
             image_shape=(100, 100),
             base_mask=base_mask,
             params=cheek_params,
@@ -184,9 +184,10 @@ class TestEllipseMaskDebugInfo:
         assert abs(np.dot(v, w)) < 0.1, "V and W should be orthogonal"
 
     @pytest.mark.parametrize("cheek_side", ['left', 'right'])
-    def test_both_cheeks(self, segmenter, cheek_params, base_mask, landmarks_3d, cheek_side):
+    def test_both_cheeks(self, cheek_params, base_mask, landmarks_3d, cheek_side):
         """Test debug_info works for both left and right cheeks."""
-        result = segmenter.create_cheek_mask(
+        s = CheekBlendStrategy(cheek_side)
+        result = s.create_cheek_mask(
             image_shape=(100, 100),
             base_mask=base_mask,
             params=cheek_params,

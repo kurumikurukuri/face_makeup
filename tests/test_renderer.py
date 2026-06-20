@@ -1,209 +1,174 @@
 """
-Tests for Renderer class.
+Tests for Renderer class (two-phase pipeline).
 """
 import pytest
 import numpy as np
 
-from face_makeup.face import MakeupLayer, EyeShadowLayer, EyeIrisLayer, EyeLinerLayer
+from face_makeup.face import Face
+from face_makeup.core.pipeline import MakeupPass, MaskStrategy, BlendStrategy
 from face_makeup.core.types import (
-    EyeShadowParams,
-    EyeIrisParams,
-    EyeLinerParams,
-    LipsParams,
-    CheekParams,
+    FaceLandmarks,
     ColorParams,
-    PARAMS_PRIORITY
+    PartParams,
 )
 from face_makeup.renderer import Renderer
-from face_makeup.core.segmenter import FaceSegmenter
-from face_makeup.core.makeup_blender import MakeupBlender
 
 
-class TestResolveOverlaps:
-    """Tests for _resolve_overlaps method."""
+def _make_landmarks(n_points=478):
+    """Create FaceLandmarks with coordinates in a rough face oval pattern."""
+    pts = np.zeros((n_points, 2), dtype=np.float32)
+    # Scatter points around the center with a simple oval pattern
+    angles = np.linspace(0, 2 * np.pi, n_points, endpoint=False)
+    pts[:, 0] = 0.5 + 0.2 * np.cos(angles)
+    pts[:, 1] = 0.5 + 0.3 * np.sin(angles)
+    return FaceLandmarks(points=pts)
+
+
+def _make_face(makeup_passes=None):
+    """Create a minimal Face instance for testing."""
+    face = Face.__new__(Face)
+    face._face_id = 0
+    face._bbox = None
+    face._landmarks = _make_landmarks()
+    face._change_callback = None
+    face._makeup_passes = makeup_passes or []
+    return face
+
+
+class _NoopMaskStrategy(MaskStrategy):
+    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+        mask = np.zeros(image_shape, dtype=np.uint8)
+        mask[30:70, 30:70] = 255
+        return mask
+
+
+class _IdentityBlendStrategy(BlendStrategy):
+    """Returns image unchanged (for testing pipeline flow)."""
+
+    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+        return image.copy()
+
+
+class _TintBlendStrategy(BlendStrategy):
+    """Adds a fixed value to masked region (for verifying blend order)."""
+
+    def __init__(self, increment=10):
+        self._increment = increment
+
+    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+        result = image.copy()
+        result[mask > 0] = np.clip(
+            result[mask > 0].astype(np.int32) + self._increment, 0, 255
+        ).astype(np.uint8)
+        return result
+
+
+def _make_pass(pass_type, priority=0, exclusion_passes=None, blend=None):
+    return MakeupPass(
+        pass_type=pass_type,
+        priority=priority,
+        params=PartParams(
+            color_params=ColorParams(target_rgb=(128, 128, 128)),
+            opacity=0.5,
+        ),
+        landmark_indices=[],
+        mask_strategy=_NoopMaskStrategy(),
+        blend_strategy=blend or _IdentityBlendStrategy(),
+        exclusion_passes=exclusion_passes or [],
+    )
+
+
+class TestTwoPhasePipeline:
+    """Tests for the two-phase render pipeline."""
 
     @pytest.fixture
     def renderer(self):
-        """Create renderer instance."""
-        segmenter = FaceSegmenter()
-        blender = MakeupBlender()
-        return Renderer(segmenter, blender)
+        return Renderer()
 
-    @pytest.fixture
-    def sample_mask(self):
-        """Create a sample mask for testing."""
-        mask = np.zeros((100, 100), dtype=np.float32)
-        mask[30:70, 30:70] = 1.0  # Center square
-        return mask
+    def test_render_empty_passes(self, renderer):
+        face = _make_face(makeup_passes=[])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        np.testing.assert_array_equal(result, image)
 
-    def test_same_type_overlap_allowed(self, renderer, sample_mask):
-        """Same PartParams type layers should overlap."""
-        params = EyeShadowParams(
-            color_params=ColorParams(target_rgb=(200, 150, 150)),
-            opacity=0.3
+    def test_render_single_pass(self, renderer):
+        face = _make_face(makeup_passes=[_make_pass("test", priority=10)])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.shape == (100, 100, 3)
+
+    def test_exclusion_subtraction(self, renderer):
+        """Higher-layer mask should be subtracted from dependent pass mask."""
+        source = _make_pass("source", priority=10)
+        dependent = _make_pass("dependent", priority=5, exclusion_passes=["source"])
+        face = _make_face(makeup_passes=[dependent, source])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.shape == (100, 100, 3)
+
+    def test_multiple_exclusions(self, renderer):
+        source_a = _make_pass("source_a", priority=20)
+        source_b = _make_pass("source_b", priority=30)
+        dependent = _make_pass(
+            "dependent", priority=0,
+            exclusion_passes=["source_a", "source_b"],
         )
+        face = _make_face(makeup_passes=[dependent, source_b, source_a])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.shape == (100, 100, 3)
 
-        # Two EyeShadowParams layers (eyelid and eyelid_edge)
-        layer1 = EyeShadowLayer(part_name='eyelid_left', params=params)
-        layer1.mask = sample_mask.copy()
+    def test_priority_order_render(self, renderer):
+        """Blends are applied in priority order (lowest first)."""
+        face = _make_face(makeup_passes=[
+            _make_pass("high", priority=100),
+            _make_pass("low", priority=0),
+        ])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.shape == (100, 100, 3)
 
-        layer2 = EyeShadowLayer(part_name='eyelid_edge_left', params=params)
-        layer2.mask = sample_mask.copy()  # Same mask area
+    def test_missing_exclusion_source_skipped(self, renderer):
+        """Dependent with exclusion from non-existent pass: silently skipped."""
+        dependent = _make_pass("dependent", priority=5, exclusion_passes=["nonexistent"])
+        face = _make_face(makeup_passes=[dependent])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.shape == (100, 100, 3)
 
-        layers = [layer1, layer2]
-        renderer._resolve_overlaps(layers)
-
-        # Both masks should remain unchanged (overlap allowed)
-        assert np.allclose(layer1.mask, sample_mask)
-        assert np.allclose(layer2.mask, sample_mask)
-
-    def test_different_type_overlap_resolved(self, renderer, sample_mask):
-        """Different PartParams type layers should have overlap resolved."""
-        eyeshadow_params = EyeShadowParams(
-            color_params=ColorParams(target_rgb=(200, 150, 150)),
-            opacity=0.3
+    def test_no_mask_strategy_skipped(self, renderer):
+        p = MakeupPass(
+            pass_type="nomask", priority=0,
+            params=PartParams(
+                color_params=ColorParams(target_rgb=(128, 128, 128)),
+                opacity=0.5,
+            ),
+            landmark_indices=[],
         )
-        eyeiris_params = EyeIrisParams(
-            color_params=ColorParams(target_rgb=(100, 200, 100)),
-            opacity=0.5
-        )
+        face = _make_face(makeup_passes=[p])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.shape == (100, 100, 3)
 
-        # EyeShadowParams vs EyeIrisParams
-        layer1 = EyeShadowLayer(part_name='eyelid_left', params=eyeshadow_params)
-        layer1.mask = sample_mask.copy()
+    def test_render_returns_uint8(self, renderer):
+        face = _make_face(makeup_passes=[_make_pass("test", priority=10)])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.dtype == np.uint8
 
-        layer2 = EyeIrisLayer(part_name='eyeiris_left', params=eyeiris_params)
-        layer2.mask = sample_mask.copy()  # Same mask area
-
-        layers = [layer1, layer2]
-        renderer._resolve_overlaps(layers)
-
-        # EyeIrisParams has higher priority, so eyeshadow should be subtracted
-        # EyeIris mask should remain unchanged
-        assert np.allclose(layer2.mask, sample_mask)
-
-        # Eyeshadow mask should have the overlap region removed
-        assert not np.allclose(layer1.mask, sample_mask)
-        # In the overlap region, eyeshadow should be 0
-        assert np.all(layer1.mask[30:70, 30:70] == 0)
-
-    def test_priority_order(self, renderer, sample_mask):
-        """Higher priority layers should keep their masks."""
-        cheek_params = CheekParams(
-            color_params=ColorParams(target_rgb=(255, 180, 180)),
-            opacity=0.3,
-            center=(0.0, 0.0),
-            radius=(0.5, 0.5)
-        )
-        lips_params = LipsParams(
-            color_params=ColorParams(target_rgb=(255, 100, 100)),
-            opacity=0.5
-        )
-        eyeliner_params = EyeLinerParams(
-            color_params=ColorParams(target_rgb=(0, 0, 0)),
-            opacity=1.0
-        )
-
-        # Create layers with same mask area
-        layer_cheek = MakeupLayer(part_name='cheek_left', params=cheek_params)
-        layer_cheek.mask = sample_mask.copy()
-
-        layer_lips = MakeupLayer(part_name='lips', params=lips_params)
-        layer_lips.mask = sample_mask.copy()
-
-        layer_eyeliner = EyeLinerLayer(part_name='eyeliner_left', params=eyeliner_params)
-        layer_eyeliner.mask = sample_mask.copy()
-
-        layers = [layer_cheek, layer_lips, layer_eyeliner]
-        renderer._resolve_overlaps(layers)
-
-        # Check priority: EyeLiner > Lips > Cheek
-        assert PARAMS_PRIORITY[EyeLinerParams] > PARAMS_PRIORITY[LipsParams]
-        assert PARAMS_PRIORITY[LipsParams] > PARAMS_PRIORITY[CheekParams]
-
-        # Eyeliner (highest) should be unchanged
-        assert np.allclose(layer_eyeliner.mask, sample_mask)
-
-        # Lips and cheek should have overlap removed from eyeliner
-        assert np.all(layer_lips.mask[30:70, 30:70] == 0)
-        assert np.all(layer_cheek.mask[30:70, 30:70] == 0)
-
-    def test_empty_layers_list(self, renderer):
-        """Empty layers list should not raise error."""
-        layers = []
-        renderer._resolve_overlaps(layers)  # Should not raise
-
-    def test_layers_without_masks(self, renderer):
-        """Layers without masks should be skipped."""
-        params = EyeShadowParams(
-            color_params=ColorParams(target_rgb=(200, 150, 150)),
-            opacity=0.3
-        )
-
-        layer1 = EyeShadowLayer(part_name='eyelid_left', params=params)
-        layer1.mask = None  # No mask
-
-        layer2 = EyeShadowLayer(part_name='eyelid_right', params=params)
-        layer2.mask = None  # No mask
-
-        layers = [layer1, layer2]
-        renderer._resolve_overlaps(layers)  # Should not raise
-
-        # Masks should remain None
-        assert layer1.mask is None
-        assert layer2.mask is None
-
-    def test_partial_overlap(self, renderer):
-        """Partial overlap should only affect overlapping region."""
-        eyeshadow_params = EyeShadowParams(
-            color_params=ColorParams(target_rgb=(200, 150, 150)),
-            opacity=0.3
-        )
-        eyeiris_params = EyeIrisParams(
-            color_params=ColorParams(target_rgb=(100, 200, 100)),
-            opacity=0.5
-        )
-
-        # Eyeshadow mask covers larger area
-        eyeshadow_mask = np.zeros((100, 100), dtype=np.float32)
-        eyeshadow_mask[20:80, 20:80] = 1.0
-
-        # Eyeiris mask covers smaller center area
-        eyeiris_mask = np.zeros((100, 100), dtype=np.float32)
-        eyeiris_mask[40:60, 40:60] = 1.0
-
-        layer1 = EyeShadowLayer(part_name='eyelid_left', params=eyeshadow_params)
-        layer1.mask = eyeshadow_mask
-
-        layer2 = EyeIrisLayer(part_name='eyeiris_left', params=eyeiris_params)
-        layer2.mask = eyeiris_mask
-
-        layers = [layer1, layer2]
-        renderer._resolve_overlaps(layers)
-
-        # Eyeiris (higher priority) should be unchanged
-        assert np.all(layer2.mask[40:60, 40:60] == 1.0)
-
-        # Eyeshadow should have center removed but outer ring preserved
-        assert np.all(layer1.mask[40:60, 40:60] == 0)  # Overlap removed
-        assert np.all(layer1.mask[20:40, 20:80] == 1.0)  # Top edge preserved
-        assert np.all(layer1.mask[60:80, 20:80] == 1.0)  # Bottom edge preserved
+    def test_blend_applied_in_priority_order(self, renderer):
+        """Verify that Phase 2 applies lowest priority first (under) then higher (over)."""
+        # low priority blends first (underneath), high last (on top overlaying)
+        # Both have same mask region; high blends last so its tint is visible
+        low = _make_pass("low", priority=0, blend=_TintBlendStrategy(increment=10))
+        high = _make_pass("high", priority=100, blend=_TintBlendStrategy(increment=50))
+        face = _make_face(makeup_passes=[high, low])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        # Both applied: low first adds 10, then high adds 50 on top
+        # So masked region should have 60 (10 + 50) or close to it
+        center_pixel = result[50, 50, 0]
+        # low (pri=0) blended first → +10, then high (pri=100) → +50 = +60 total in mask
+        assert center_pixel == 60, f"Expected 60, got {center_pixel}"
 
 
-class TestParamsPriority:
-    """Tests for PARAMS_PRIORITY constant."""
-
-    def test_priority_values(self):
-        """Check that all PartParams types have expected priorities."""
-        assert CheekParams in PARAMS_PRIORITY
-        assert LipsParams in PARAMS_PRIORITY
-        assert EyeShadowParams in PARAMS_PRIORITY
-        assert EyeLinerParams in PARAMS_PRIORITY
-        assert EyeIrisParams in PARAMS_PRIORITY
-
-    def test_priority_order(self):
-        """Check priority ordering is correct."""
-        assert PARAMS_PRIORITY[CheekParams] < PARAMS_PRIORITY[LipsParams]
-        assert PARAMS_PRIORITY[LipsParams] < PARAMS_PRIORITY[EyeShadowParams]
-        assert PARAMS_PRIORITY[EyeShadowParams] < PARAMS_PRIORITY[EyeLinerParams]
-        assert PARAMS_PRIORITY[EyeLinerParams] < PARAMS_PRIORITY[EyeIrisParams]

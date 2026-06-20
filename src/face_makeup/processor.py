@@ -14,8 +14,6 @@ import numpy as np
 
 from face_makeup.core.face_detector import FaceDetector
 from face_makeup.core.landmark_extractor import LandmarkExtractor
-from face_makeup.core.segmenter import FaceSegmenter
-from face_makeup.core.makeup_blender import MakeupBlender
 from face_makeup.rendering_pipeline import RenderingPipeline
 from face_makeup.io_handler import IOHandler
 from face_makeup.context import ImageContext
@@ -68,9 +66,7 @@ class MakeupProcessor:
         )
 
         # Create rendering pipeline (shared across all contexts)
-        segmenter = FaceSegmenter()
-        blender = MakeupBlender()
-        self._rendering_pipeline = RenderingPipeline(segmenter, blender)
+        self._rendering_pipeline = RenderingPipeline()
 
         # Create I/O handler
         self._io_handler = IOHandler()
@@ -106,6 +102,10 @@ class MakeupProcessor:
         # Extract landmarks for all faces
         landmarks_list = self._landmark_extractor.extract_all(image)
         logger.debug(f"Number of landmarks extracted: {len(landmarks_list)}")
+
+        # Extend with custom (virtual) landmarks
+        from face_makeup.core.landmark_resolver import extend_landmarks
+        landmarks_list = [extend_landmarks(lm) for lm in landmarks_list]
 
         # Use minimum count if bbox and landmarks counts differ
         num_faces = min(len(bboxes), len(landmarks_list))

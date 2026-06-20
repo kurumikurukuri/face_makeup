@@ -165,13 +165,7 @@ streamlit run apps/streamlit_app.py
 
 ## ドキュメント
 
-詳細な使い方については `docs/` を参照してください：
-
-- [クイックリファレンス](docs/quick-reference.md) - 基本的な使い方とトラブルシューティング
-- [コントリビューションガイド](docs/CONTRIB.md) - 開発環境構築とテスト
-- [メイク部位追加マニュアル](docs/adding-makeup-parts.md) - メイク部位拡張手順
-
-
+リリース時に追加予定
 
 ## ライセンス
 

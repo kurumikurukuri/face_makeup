@@ -13,8 +13,6 @@ from weakref import WeakKeyDictionary
 import numpy as np
 
 from face_makeup.renderer import Renderer
-from face_makeup.core.segmenter import FaceSegmenter
-from face_makeup.core.makeup_blender import MakeupBlender
 
 if TYPE_CHECKING:
     from face_makeup.context import ImageContext
@@ -31,23 +29,15 @@ class RenderingPipeline:
     ImageContext instances are garbage collected.
 
     Example:
-        >>> segmenter = FaceSegmenter()
-        >>> blender = MakeupBlender()
-        >>> pipeline = RenderingPipeline(segmenter, blender)
+        >>> pipeline = RenderingPipeline()
         >>> ctx = processor.open(image)  # ImageContext uses pipeline
         >>> result = ctx.render()  # Uses cached result if available
     """
 
-    def __init__(self, segmenter: FaceSegmenter, blender: MakeupBlender):
+    def __init__(self):
         """
         Initialize rendering pipeline.
-
-        Args:
-            segmenter: Face segmenter for mask generation.
-            blender: Makeup blender for color application.
         """
-        self._segmenter = segmenter
-        self._blender = blender
         # Cache keyed by ImageContext object (auto-cleanup via weak references)
         self._cache: WeakKeyDictionary[ImageContext, np.ndarray] = WeakKeyDictionary()
 
@@ -90,8 +80,6 @@ class RenderingPipeline:
             visualizer = DebugVisualizer()
 
         renderer = Renderer(
-            segmenter=self._segmenter,
-            blender=self._blender,
             visualizer=visualizer
         )
 

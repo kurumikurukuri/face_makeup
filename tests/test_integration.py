@@ -133,7 +133,7 @@ class TestFluentAPIChaining:
         )
 
         assert result is ctx.faces[0]
-        assert len(ctx.faces[0].makeup_layers) >= 7
+        assert len(ctx.faces[0].makeup_passes) >= 7
 
     def test_chain_with_keyword_args(self, processor, test_image):
         """Test chaining with keyword arguments."""

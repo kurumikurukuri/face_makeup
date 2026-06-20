@@ -139,7 +139,7 @@ class TestMakeupLayerEdgeCases:
             ctx.faces[0].lip(color=(255, 100, 100), opacity=0.2)
         result = ctx.render()
         assert result.shape == test_image.shape
-        assert len(ctx.faces[0].makeup_layers) == 5
+        assert len(ctx.faces[0].makeup_passes) == 5
 
     def test_conflicting_colors(self, processor, test_image):
         """Test applying conflicting colors to same area."""
@@ -157,10 +157,10 @@ class TestMakeupLayerEdgeCases:
         ctx.faces[0].eyelid(color=(180, 130, 150), opacity=0.3)
 
         # lip=1, cheek(both)=2, eyelid(both)=2 => total 5 layers
-        assert len(ctx.faces[0].makeup_layers) == 5
+        assert len(ctx.faces[0].makeup_passes) == 5
 
         ctx.faces[0].clear()
-        assert len(ctx.faces[0].makeup_layers) == 0
+        assert len(ctx.faces[0].makeup_passes) == 0
 
     def test_side_specific_layers(self, processor, test_image):
         """Test left and right side specific layers."""
@@ -169,7 +169,7 @@ class TestMakeupLayerEdgeCases:
         ctx.faces[0].cheek(color=(0, 255, 0), opacity=0.3, side='right')
         result = ctx.render()
         assert result.shape == test_image.shape
-        assert len(ctx.faces[0].makeup_layers) == 2
+        assert len(ctx.faces[0].makeup_passes) == 2
 
 
 class TestCacheEdgeCases:

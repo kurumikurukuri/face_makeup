@@ -1,21 +1,75 @@
 """
-MediaPipe Face Mesh landmark indices (478 points).
+MediaPipe Face Mesh landmark indices (478 points) + custom landmark IDs.
 
-Custom landmarks are defined in custom_landmark.py.
-Use resolve_indices() to expand index lists (including 'mid' tuples) to coordinates.
+Custom landmarks are defined in custom_landmark.py as CUSTOM_LANDMARK_DEFS.
+Their logical IDs double as array indices in the extended coordinates array
+(see core/landmark_resolver.py).
 """
 
-from .custom_landmark import (
-    LM_1001, LM_1002, LM_1003,
-    LM_1101, LM_1102, LM_1103, LM_1104, LM_1105,
-    LM_1201, LM_1202, LM_1203, LM_1204, LM_1205, LM_1206, LM_1207,
-    LM_1301, LM_1302, LM_1303, LM_1304, LM_1305, LM_1306, LM_1307,
-    LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408,
-    LM_1501, LM_1502, LM_1503, LM_1504, LM_1505, LM_1506, LM_1507,
-    LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608,
-    LM_1701, LM_1702, LM_1703, LM_1704, LM_1705, LM_1706, LM_1707,
-    resolve_indices,
-)
+from .custom_landmark import EDGE_LANDMARK_DIRECTIONS  # noqa: F401 — re-exported for eyeliner corrector
+
+# ---------------------------------------------------------------------------
+# Custom landmark IDs (logical ID = array index)
+# ---------------------------------------------------------------------------
+LM_1001 = 1001
+LM_1002 = 1002
+LM_1003 = 1003
+
+LM_1101 = 1101
+LM_1102 = 1102
+LM_1103 = 1103
+LM_1104 = 1104
+LM_1105 = 1105
+
+LM_1201 = 1201
+LM_1202 = 1202
+LM_1203 = 1203
+LM_1204 = 1204
+LM_1205 = 1205
+LM_1206 = 1206
+LM_1207 = 1207
+
+LM_1301 = 1301
+LM_1302 = 1302
+LM_1303 = 1303
+LM_1304 = 1304
+LM_1305 = 1305
+LM_1306 = 1306
+LM_1307 = 1307
+
+LM_1401 = 1401
+LM_1402 = 1402
+LM_1403 = 1403
+LM_1404 = 1404
+LM_1405 = 1405
+LM_1406 = 1406
+LM_1407 = 1407
+LM_1408 = 1408
+
+LM_1501 = 1501
+LM_1502 = 1502
+LM_1503 = 1503
+LM_1504 = 1504
+LM_1505 = 1505
+LM_1506 = 1506
+LM_1507 = 1507
+
+LM_1601 = 1601
+LM_1602 = 1602
+LM_1603 = 1603
+LM_1604 = 1604
+LM_1605 = 1605
+LM_1606 = 1606
+LM_1607 = 1607
+LM_1608 = 1608
+
+LM_1701 = 1701
+LM_1702 = 1702
+LM_1703 = 1703
+LM_1704 = 1704
+LM_1705 = 1705
+LM_1706 = 1706
+LM_1707 = 1707
 
 # MediaPipe Face Mesh landmark indices
 # Reference: https://github.com/google/mediapipe/blob/master/docs/solutions/face_mesh.md
@@ -36,7 +90,7 @@ LOWER_LIP_INDICES = [
 
 
 # Full lips (upper + lower combined)
-# Note: Processed separately in segmenter.py then combined
+# Upper and lower lip indices; combined via bitwise OR in passes/lips.py
 LIPS_INDICES = {
     'upper': UPPER_LIP_INDICES,
     'lower': LOWER_LIP_INDICES,
@@ -134,28 +188,12 @@ RIGHT_EYE_IDX = [
 EYE_IRIS_RIGHT_INDICES = [474, 475, 476, 477, 473]
 EYE_IRIS_LEFT_INDICES = [469, 470, 471, 472, 468]
 
+# Face oval contour (jawline + forehead) for foundation mask
+FACE_OVAL_INDICES = [
+    10, 338, 297, 332, 284, 251, 389, 356, 454, 323,
+    361, 288, 397, 365, 379, 378, 400, 377, 152, 148,
+    176, 149, 150, 136, 172, 58, 132, 93, 234, 127,
+    162, 21, 54, 103, 67, 109,
+]
 
-# Part name to landmark indices mapping
-# Format: 'part_name': INDICES or 'part_name': (INDICES, 'type')
-PART_LANDMARK_MAP = {
-    # Convex hull type
-    'cheek_left': (CHEEK_LEFT_INDICES, "convex"),
-    'cheek_right': (CHEEK_RIGHT_INDICES, "convex"),
 
-    # Polygon type
-    'lips': (LIPS_INDICES, 'polygon'),
-    'eye_left': (LEFT_EYE_IDX, 'polygon'),
-    'eye_right': (RIGHT_EYE_IDX, 'polygon'),
-    'eyelid_left': (EYELID_LEFT_INDICES, 'polygon'),
-    'eyelid_right': (EYELID_RIGHT_INDICES, 'polygon'),
-    'eyelid_edge_left': (EYELID_EDGE_LEFT_INDICES, 'polygon'),
-    'eyelid_edge_right': (EYELID_EDGE_RIGHT_INDICES, 'polygon'),
-
-    # Curve type
-    'eyeliner_left': (EYELINER_LEFT_INDICES, 'curve'),
-    'eyeliner_right': (EYELINER_RIGHT_INDICES, 'curve'),
-
-    # Ellipse type
-    'eyeiris_left': (EYE_IRIS_LEFT_INDICES, 'ellipse'),
-    'eyeiris_right': (EYE_IRIS_RIGHT_INDICES, 'ellipse'),
-}

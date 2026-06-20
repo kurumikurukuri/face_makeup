@@ -1,31 +1,26 @@
 """
 Internal rendering engine for makeup composition.
 
-Handles composition of makeup layers onto images.
+Handles composition of makeup layers onto images via two-phase execution:
+Phase 1 (topological sort): generate masks, subtract exclusions.
+Phase 2 (priority sort): apply blends.
 Not exposed in public API - used by ImageContext.
 """
 from __future__ import annotations
 
-import copy
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional
 
+import cv2
 import numpy as np
 
-from face_makeup.core.segmenter import FaceSegmenter
-from face_makeup.core.makeup_blender import MakeupBlender
-from face_makeup.core.types import (
-    LipsParams,
-    CheekParams,
-    EyeShadowParams,
-    EyeLinerParams,
-    EyeIrisParams,
-    PARAMS_PRIORITY
-)
+from face_makeup.core.pipeline import topological_sort
+from face_makeup.core.passes.cheek import CheekBlendStrategy
+from face_makeup.core.types import CheekParams, EyeLinerParams
 
 if TYPE_CHECKING:
-    from face_makeup.face import Face, MakeupLayer
+    from face_makeup.face import Face
     from face_makeup.core.debug_visualizer import DebugVisualizer
 
 logger = logging.getLogger(__name__)
@@ -40,20 +35,14 @@ class Renderer:
 
     def __init__(
         self,
-        segmenter: FaceSegmenter,
-        blender: MakeupBlender,
         visualizer: Optional[DebugVisualizer] = None
     ):
         """
-        Initialize renderer with processing components.
+        Initialize renderer.
 
         Args:
-            segmenter: Face segmenter for mask generation.
-            blender: Makeup blender for color application.
             visualizer: Optional debug visualizer.
         """
-        self._segmenter = segmenter
-        self._blender = blender
         self._visualizer = visualizer
 
     def render_face(
@@ -64,93 +53,104 @@ class Renderer:
         session_id: Optional[str] = None
     ) -> np.ndarray:
         """
-        Render all makeup layers for a single face.
+        Render all makeup layers for a single face via two-phase execution.
 
-        Args:
-            image: Current image state.
-            face: Face with makeup layers.
-            debug: Generate debug output.
-            session_id: Session ID for debug files.
-
-        Returns:
-            Image with face makeup applied.
+        Phase 1: Topological sort by exclusion dependency, generate masks,
+                 and subtract exclusion masks.
+        Phase 2: Priority sort and apply blends.
         """
-        if not face.makeup_layers:
-            logger.debug(f"Face {face.face_id}: No makeup layers to render")
+        passes = face.makeup_passes
+        if not passes:
+            logger.debug(f"Face {face.face_id}: No makeup passes to render")
             return image
 
         session_id = session_id or self._generate_session_id()
         face_session = f"{session_id}_face{face.face_id}"
 
-        # Work on shallow copies to avoid mutating Face internal state
-        layers = [copy.copy(layer) for layer in face.makeup_layers]
+        h, w = image.shape[:2]
+        coords = face.landmarks.to_image_coords(w, h)
 
-        # Get unique part names from layers
-        part_names = list(set(layer.part_name for layer in layers))
+        # Phase 1 — Mask generation (dependency-ordered)
+        mask_registry: Dict[str, np.ndarray] = {}
+        hard_masks: Dict[str, np.ndarray] = {}
 
-        # Preprocess for eyeliner once so segment() and the debug path share the
-        # same gray array — avoids a second bilateralFilter call in debug mode.
-        eyeliner_gray: Optional[np.ndarray] = None
-        if any(isinstance(layer.params, EyeLinerParams) for layer in layers):
-            eyeliner_gray = self._segmenter.preprocess_for_eyeliner(image)
+        for pass_ in topological_sort(list(passes)):
+            if pass_.mask_strategy is None:
+                logger.warning(f"No mask strategy for pass: {pass_.pass_type}")
+                continue
 
-        # Generate hard masks (pass pre-computed gray for eyeliner edge correction)
-        hard_masks = self._generate_masks(image.shape[:2], face, part_names, image=image, eyeliner_gray=eyeliner_gray)
+            mask = pass_.mask_strategy.generate(
+                coords, image.shape[:2],
+                image=image,
+                landmarks=face.landmarks,
+            )
+
+            # Subtract exclusion masks
+            for exclusion_name in pass_.exclusion_passes:
+                if exclusion_name in mask_registry:
+                    exclusion = mask_registry[exclusion_name]
+                    if exclusion.dtype != mask.dtype:
+                        exclusion = exclusion.astype(mask.dtype)
+                    mask = cv2.subtract(mask, exclusion)
+
+            mask_registry[pass_.pass_type] = mask
+            hard_masks[pass_.pass_type] = mask
 
         if debug and self._visualizer:
             self._visualizer.save_masks(image, hard_masks, face_session, "hard")
 
-        # Assign masks to layers (float32 conversion only, blur applied in blend)
-        for layer in layers:
-            if layer.part_name in hard_masks:
-                hard_mask = hard_masks[layer.part_name]
-                layer.mask = hard_mask.astype(np.float32) / 255.0
-
-        # Resolve overlaps by type priority
-        self._resolve_overlaps(layers)
+        # Convert masks to float32 0-1 in local dict (no mutation of pass objects)
+        soft_mask_registry: Dict[str, np.ndarray] = {}
+        for pass_ in passes:
+            if pass_.pass_type in mask_registry:
+                soft_mask_registry[pass_.pass_type] = (
+                    mask_registry[pass_.pass_type].astype(np.float32) / 255.0
+                )
 
         if debug and self._visualizer:
-            # Create soft_masks dict for debug visualization
-            soft_masks = {layer.part_name: layer.mask for layer in layers if layer.mask is not None}
-            self._visualizer.save_masks(image, soft_masks, face_session, "soft")
+            self._visualizer.save_masks(image, soft_mask_registry, face_session, "soft")
 
-        # Apply each layer
+        # Phase 2 — Blend application (priority-sorted, lowest first)
         result = image.copy()
-        for layer in layers:
-            if layer.mask is None:
-                logger.warning(f"No mask for part: {layer.part_name}")
+        for pass_ in sorted(passes, key=lambda p: p.priority):
+            cached = soft_mask_registry.get(pass_.pass_type)
+            if cached is None or not cached.any():
+                if cached is None:
+                    logger.warning(f"No mask for pass: {pass_.pass_type}")
                 continue
 
-            result = self._apply_layer(result, layer.mask, layer, face)
+            if pass_.blend_strategy is None:
+                logger.warning(f"No blend strategy for pass: {pass_.pass_type}")
+                continue
+
+            result = pass_.blend_strategy.apply(
+                result, cached, pass_.params,
+                landmarks=face.landmarks,
+            )
 
             if debug and self._visualizer:
-                logger.debug(f"Applied layer: {layer.part_name}")
+                logger.debug(f"Applied pass: {pass_.pass_type}")
 
-                # Save cheek 3D debug visualization
-                if isinstance(layer.params, CheekParams):
-                    # Use getattr to avoid circular import of CheekLayer
-                    cheek_side = getattr(layer, 'cheek_side', 'left')
-                    self._visualizer.save_cheek_3d_debug(
-                        image=image,
-                        soft_mask=layer.mask,
-                        params=layer.params,
-                        landmarks=face.landmarks,
-                        segmenter=self._segmenter,
-                        part_name=layer.part_name,
-                        cheek_side=cheek_side,
-                        session_id=face_session
+            # Eyeliner correction debug visualization
+            if (
+                debug
+                and self._visualizer
+                and isinstance(pass_.params, EyeLinerParams)
+                and pass_.mask_strategy is not None
+            ):
+                corrector = getattr(pass_.mask_strategy, '_corrector', None)
+                if corrector is not None:
+                    eye_side = (
+                        'right' if pass_.pass_type.endswith('_right') else 'left'
                     )
-
-                # Save eyeliner correction debug visualization
-                if isinstance(layer.params, EyeLinerParams):
-                    eye_side = 'right' if layer.part_name.endswith('_right') else 'left'
-                    debug_entries = self._segmenter.get_eyeliner_correction_debug(
+                    debug_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+                    debug_entries = corrector.get_debug_entries(
                         image=image,
                         landmarks=face.landmarks,
                         image_shape=image.shape[:2],
-                        part_name=layer.part_name,
+                        part_name=pass_.pass_type,
                         side=eye_side,
-                        gray=eyeliner_gray,
+                        eyeliner=image,
                     )
                     for i, entry in enumerate(debug_entries):
                         if 'samples' not in entry:
@@ -158,20 +158,48 @@ class Renderer:
                         self._visualizer.save_eyeliner_correction_debug(
                             image=image,
                             side=entry['side'],
-                            gray=entry['gray'],
+                            gray=debug_gray,
                             px=entry['px'], py=entry['py'],
                             qx=entry['qx'], qy=entry['qy'],
                             detected_x=entry['detected_x'],
                             detected_y=entry['detected_y'],
-                            samples=entry['samples'],
-                            first_derivative=entry['first_derivative'],
-                            second_derivative=entry['second_derivative'],
-                            t_values=entry['t_values'],
-                            zero_crossings=entry['zero_crossings'],
-                            best_idx=entry['best_idx'],
+                            samples=entry.get('samples'),
+                            first_derivative=entry.get('first_derivative'),
+                            second_derivative=entry.get('second_derivative'),
+                            t_values=entry.get('t_values'),
+                            zero_crossings=entry.get('zero_crossings'),
+                            best_idx=entry.get('best_idx'),
                             point_index=i,
-                            session_id=face_session
+                            session_id=face_session,
                         )
+
+            # Cheek 3D debug visualization
+            if (
+                debug
+                and self._visualizer
+                and isinstance(pass_.params, CheekParams)
+                and isinstance(pass_.blend_strategy, CheekBlendStrategy)
+            ):
+                cheek_side = (
+                    "right" if pass_.pass_type.endswith("_right") else "left"
+                )
+                cheek_result = pass_.blend_strategy.create_cheek_mask(
+                    image_shape=image.shape[:2],
+                    base_mask=cached,
+                    params=pass_.params,
+                    landmarks=face.landmarks,
+                    cheek_side=cheek_side,
+                    return_debug_info=True,
+                )
+                if isinstance(cheek_result, tuple):
+                    cheek_mask, debug_info = cheek_result
+                    self._visualizer.save_cheek_3d_debug(
+                        image=image,
+                        cheek_mask=cheek_mask,
+                        debug_info=debug_info,
+                        cheek_side=cheek_side,
+                        session_id=face_session,
+                    )
 
         return result
 
@@ -202,7 +230,7 @@ class Renderer:
         result = image.copy()
 
         for face in faces:
-            if not face.makeup_layers:
+            if not face.makeup_passes:
                 continue
 
             if debug and self._visualizer:
@@ -216,149 +244,6 @@ class Renderer:
 
         logger.debug(f"Composed {len(faces)} faces")
         return result
-
-    def _generate_masks(
-        self,
-        image_shape: tuple,
-        face: Face,
-        parts: List[str],
-        image: Optional[np.ndarray] = None,
-        eyeliner_gray: Optional[np.ndarray] = None
-    ) -> Dict[str, np.ndarray]:
-        """
-        Generate hard masks for face parts.
-
-        Args:
-            image_shape: (H, W) tuple.
-            face: Face with landmarks.
-            parts: List of part names.
-            image: Original image for eyeliner edge correction.
-            eyeliner_gray: Pre-computed grayscale from preprocess_for_eyeliner.
-                           Passed through to avoid recomputing bilateralFilter.
-
-        Returns:
-            Dictionary of part_name -> hard mask (uint8 0/255).
-        """
-        return self._segmenter.segment(
-            image_shape,
-            face.landmarks,
-            parts,
-            image=image,
-            eyeliner_gray=eyeliner_gray
-        )
-
-    def _resolve_overlaps(self, layers: List[MakeupLayer]) -> None:
-        """
-        Resolve mask overlaps based on PartParams type priority.
-
-        Same PartParams type layers are allowed to overlap.
-        Different type layers are resolved by priority (higher priority wins).
-
-        Args:
-            layers: List of MakeupLayer with masks already assigned.
-                    layer.mask is replaced with a new array; the original is
-                    never mutated.
-        """
-        # Filter layers with masks
-        layers_with_masks = [layer for layer in layers if layer.mask is not None]
-        if not layers_with_masks:
-            return
-
-        h, w = layers_with_masks[0].mask.shape[:2]
-
-        # Sort by priority (process HIGH priority first)
-        sorted_layers = sorted(
-            layers_with_masks,
-            key=lambda layer: PARAMS_PRIORITY.get(type(layer.params), 0),
-            reverse=True
-        )
-
-        # Track used masks per type (category)
-        # Higher priority types are processed first, so their masks are recorded
-        type_used_masks: Dict[type, np.ndarray] = {}
-
-        for layer in sorted_layers:
-            params_type = type(layer.params)
-
-            # Subtract masks from higher priority types (already processed)
-            # Same type overlap is OK (don't subtract from same type)
-            new_mask = layer.mask
-            for other_type, used_mask in type_used_masks.items():
-                if other_type != params_type:
-                    new_mask = np.clip(new_mask - used_mask, 0, 1)
-            layer.mask = new_mask
-
-            # Update used mask for this type
-            if params_type not in type_used_masks:
-                type_used_masks[params_type] = np.zeros((h, w), dtype=np.float32)
-            type_used_masks[params_type] = np.maximum(
-                type_used_masks[params_type], layer.mask
-            )
-
-    def _apply_layer(
-        self,
-        image: np.ndarray,
-        mask: np.ndarray,
-        layer: MakeupLayer,
-        face: Face
-    ) -> np.ndarray:
-        """
-        Apply a single makeup layer.
-
-        Args:
-            image: Current result image.
-            mask: Soft mask for this part.
-            layer: Makeup layer to apply.
-            face: Face data (for landmarks).
-
-        Returns:
-            Image with this layer's makeup applied.
-        """
-        params = layer.params
-
-        if isinstance(params, LipsParams):
-            return self._blender.blend_lips(image, mask, params)
-
-        if isinstance(params, CheekParams):
-            # Use getattr to avoid circular import of CheekLayer
-            cheek_side = getattr(layer, 'cheek_side', 'left')
-            cheek_mask = self._segmenter.create_cheek_mask(
-                image.shape[:2], mask, params,
-                landmarks=face.landmarks,
-                cheek_side=cheek_side
-            )
-            return self._blender.blend_cheek(
-                image, mask, cheek_mask, params
-            )
-
-        if isinstance(params, EyeShadowParams):
-            return self._blender.blend_eyeshadow(image, mask, params)
-
-        if isinstance(params, EyeLinerParams):
-            return self._blender.blend_eyeliner(image, mask, params)
-
-        if isinstance(params, EyeIrisParams):
-            # eyeiris mask (already float32 from render_face)
-            eyeiris_mask = mask
-
-            # Generate eye mask for constraining iris to eye region
-            eye_part = layer.part_name.replace('eyeiris_', 'eye_')
-            eye_masks = self._segmenter.segment(
-                image.shape[:2],
-                face.landmarks,
-                [eye_part]
-            )
-            eye_mask = eye_masks.get(eye_part)
-            if eye_mask is None:
-                raise ValueError(f"Failed to generate eye mask for '{eye_part}'")
-            eye_mask_soft = eye_mask.astype(np.float32) / 255.0 if eye_mask.dtype == np.uint8 else eye_mask
-
-            return self._blender.blend_eyeiris(image, eyeiris_mask, eye_mask_soft, params)
-
-        # Default blending
-        return self._blender.blend(
-            image, mask, params.color_params, params.opacity
-        )
 
     @staticmethod
     def _generate_session_id() -> str:

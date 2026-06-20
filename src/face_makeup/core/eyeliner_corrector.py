@@ -1,9 +1,15 @@
 """
 Eyeliner edge correction using 2nd-derivative zero-crossing detection.
 
-Detects the true eyeliner boundary by sampling pixel intensities along
-a landmark->delta direction, smoothing, differentiating, and selecting
-the zero-crossing with the strongest dark-to-light transition.
+Detects the true eyeliner boundary by sampling pixel intensities along a
+landmark->delta direction, smoothing, differentiating, and selecting the
+zero-crossing with the strongest dark-to-light transition.
+
+Primary path:
+    preprocess() -> _sample_intensity_along_ray() -> _find_best_crossing()
+
+If no valid edge is found along P->Q, the original landmark position P is
+returned unchanged.
 """
 import weakref
 from typing import List, Optional, Tuple, Union
@@ -11,7 +17,7 @@ from typing import List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
-from ..constants import EYELINER_CORRECTION_MAP
+from ..constants import EDGE_LANDMARK_DIRECTIONS, EYELINER_CORRECTION_MAP
 from .types import FaceLandmarks
 
 # Tuning constants for edge detection
@@ -24,28 +30,37 @@ _GRAD_THRESHOLD = 0.1   # Minimum 1st-derivative to accept a crossing as an edge
 class EyelinerCorrector:
     """Detects true eyeliner edge positions using image-based analysis."""
 
+    # Class-level preprocess cache shared across all instances so that
+    # bilateralFilter is only applied once per source image even when
+    # left and right eyeliner parts each have their own corrector.
+    _preprocess_cache: dict = {}
+    _PREPROCESS_CACHE_MAX = 4
+
+    # Per-instance correction cache cap to prevent unbounded growth
+    # during video / batch processing.
+    _MAX_CACHE_SIZE = 16
+
     def __init__(self) -> None:
         # Cache the debug entries produced by correct_points so that
         # get_debug_entries can reuse them without re-running find_edge.
-        # Structure: {part_name: {'gray_ref': weakref, 'entries': List[dict]}}
-        # A weakref to gray is stored instead of id(): if the original gray array
-        # is GC'd and CPython reuses its address for a new array, weakref() returns
-        # None, so the identity check `weakref() is gray` correctly returns False.
-        # Only 'eyeliner_left' / 'eyeliner_right' keys ever exist, so this dict
-        # is naturally bounded — no eviction is needed.
+        # Structure: {part_name: {'img_ref': weakref, 'entries': List[dict]}}
+        # A weakref to the source image is stored instead of id(): if the array
+        # is GC'd and CPython reuses its address for a new array, weakref()
+        # returns None, so the identity check `weakref() is image` is correct.
         self._correction_cache: dict = {}
+        self._cache_order: list = []
+
+    # ------------------------------------------------------------------
+    # Preprocessing
+    # ------------------------------------------------------------------
 
     def preprocess(self, image: np.ndarray) -> np.ndarray:
         """
         Preprocess image for eyeliner edge detection.
 
-        Stateless: the caller is responsible for reusing the result across
-        left/right eyeliner parts within a single frame (see
-        FaceSegmenter.segment's eyeliner_gray parameter). Caching this
-        internally by image identity is unsafe: video pipelines commonly
-        reuse the same array object for successive frames (e.g.
-        cap.read(frame)), and an identity-keyed cache would silently return
-        a stale frame's result.
+        Results are cached at the class level (keyed by image identity)
+        so that bilateralFilter runs at most once per source image even
+        when multiple EyelinerCorrector instances process the same frame.
 
         Args:
             image: RGB image (H, W, 3) uint8.
@@ -53,10 +68,34 @@ class EyelinerCorrector:
         Returns:
             Preprocessed grayscale image (H, W) uint8, normalized to 0-255.
         """
+        cache_key = (id(image), image.ctypes.data)
+        cached = self._preprocess_cache.get(cache_key)
+        if cached is not None and cached['ref']() is image:
+            return cached['result']
+
         filtered = cv2.bilateralFilter(image, 9, 50, 50)
         gray = cv2.cvtColor(filtered, cv2.COLOR_RGB2GRAY)
         gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+        # Evict oldest entry when at capacity (FIFO, dead-weakref first).
+        if len(self._preprocess_cache) >= self._PREPROCESS_CACHE_MAX:
+            stale = [k for k, v in self._preprocess_cache.items()
+                      if v['ref']() is None]
+            if stale:
+                del self._preprocess_cache[stale[0]]
+            else:
+                first_key = next(iter(self._preprocess_cache))
+                del self._preprocess_cache[first_key]
+
+        self._preprocess_cache[cache_key] = {
+            'ref': weakref.ref(image),
+            'result': gray,
+        }
         return gray
+
+    # ------------------------------------------------------------------
+    # Ray sampling + crossing detection
+    # ------------------------------------------------------------------
 
     def _sample_intensity_along_ray(
         self,
@@ -179,8 +218,8 @@ class EyelinerCorrector:
 
         Args:
             gray: Preprocessed grayscale image (H, W) uint8.
-            px, py: Start point (landmark position).
-            qx, qy: End point (delta landmark position).
+            px, py: Start point (landmark position P).
+            qx, qy: End point (delta landmark position Q).
             return_debug_info: If True, return (point, debug_dict) tuple.
 
         Returns:
@@ -210,47 +249,78 @@ class EyelinerCorrector:
         result, debug = self._find_best_crossing(samples, coords, t_values, fallback)
         return (result, debug) if return_debug_info else result
 
+    # ------------------------------------------------------------------
+    # Cache eviction
+    # ------------------------------------------------------------------
+
+    def _evict_if_needed(self) -> None:
+        """Evict oldest correction-cache entry when at capacity.
+
+        Prioritises entries whose source-image weakref is dead (image
+        already garbage-collected).  Falls back to plain FIFO when all
+        tracked images are still alive.
+        """
+        if len(self._correction_cache) < self._MAX_CACHE_SIZE:
+            return
+
+        # Priority 1: dead weakref entries
+        for key in list(self._cache_order):
+            entry = self._correction_cache.get(key)
+            if entry is not None and entry['img_ref']() is None:
+                del self._correction_cache[key]
+                self._cache_order.remove(key)
+                return
+
+        # Priority 2: oldest entry (FIFO)
+        if self._cache_order:
+            oldest = self._cache_order.pop(0)
+            self._correction_cache.pop(oldest, None)
+
+    # ------------------------------------------------------------------
+    # Batch correction
+    # ------------------------------------------------------------------
+
     def correct_points(
         self,
         coords: np.ndarray,
         part_name: str,
-        gray: np.ndarray,
+        eyeliner: np.ndarray,
     ) -> np.ndarray:
         """
         Apply edge-based correction to eyeliner landmark points.
 
-        For each landmark in the correction map, finds the true eyeliner
+        For each edge landmark in the correction map, finds the true eyeliner
         edge using 2nd-derivative zero-crossing detection along the
-        landmark->delta direction.
+        landmark->delta direction (from EDGE_LANDMARK_DIRECTIONS). Plain int
+        landmarks pass through without correction.
 
         Args:
             coords: All landmark pixel coordinates (N, 2).
             part_name: Eyeliner part name (e.g., 'eyeliner_left').
-            gray: Preprocessed grayscale image from preprocess().
+            eyeliner: Source RGB image (H, W, 3) uint8; preprocessed internally.
 
         Returns:
             np.ndarray: Corrected point coordinates (M, 2) float32,
                         concatenating upper and lower corrected points in order.
-
-        Raises:
-            ValueError: If part_name is not in EYELINER_CORRECTION_MAP.
         """
         if part_name not in EYELINER_CORRECTION_MAP:
-            raise ValueError(f"Unknown eyeliner part_name: {part_name!r}")
+            raise ValueError(
+                f"Unknown part_name: '{part_name}'. "
+                f"Expected one of {sorted(EYELINER_CORRECTION_MAP.keys())}."
+            )
         correction_map = EYELINER_CORRECTION_MAP[part_name]
+        gray = self.preprocess(eyeliner)
 
         all_corrected = []
         cache_entries: List[dict] = []
+        cache_key = (part_name, id(eyeliner))
         for _key, indices in correction_map.items():
             for idx in indices:
-                if isinstance(idx, tuple) and idx[0] == 'edge':
-                    _, p_idx, q_idx = idx
+                if idx in EDGE_LANDMARK_DIRECTIONS:
+                    p_idx, q_idx = EDGE_LANDMARK_DIRECTIONS[idx]
                     px, py = coords[p_idx]
                     qx, qy = coords[q_idx]
                     result, dbg = self.find_edge(gray, px, py, qx, qy, return_debug_info=True)
-                    # 'gray' is intentionally NOT stored in the cache entry: storing the
-                    # full preprocessed frame would pin it in memory for the lifetime of the
-                    # corrector.  Callers that need gray receive it as a direct parameter.
                     entry: dict = {
                         'px': float(px), 'py': float(py),
                         'qx': float(qx), 'qy': float(qy),
@@ -264,7 +334,13 @@ class EyelinerCorrector:
                     result = (int(coords[idx][0]), int(coords[idx][1]))
                 all_corrected.append(result)
 
-        self._correction_cache[part_name] = {'gray_ref': weakref.ref(gray), 'entries': cache_entries}
+        # 'gray' is intentionally NOT stored in the cache entry: storing the full
+        # preprocessed frame would pin it in memory for the corrector's lifetime.
+        self._evict_if_needed()
+        self._correction_cache[cache_key] = {
+            'img_ref': weakref.ref(eyeliner), 'entries': cache_entries
+        }
+        self._cache_order.append(cache_key)
         return np.array(all_corrected, dtype=np.float32)
 
     def get_debug_entries(
@@ -274,69 +350,69 @@ class EyelinerCorrector:
         image_shape: Tuple[int, int],
         part_name: str,
         side: str,
-        gray: Optional[np.ndarray] = None,
+        eyeliner: Optional[np.ndarray] = None,
     ) -> List[dict]:
         """
         Run eyeliner correction and return per-point debug information.
-
-        Used by DebugVisualizer to generate correction visualizations.
 
         Args:
             image: Original RGB image (H, W, 3) uint8.
             landmarks: Face landmarks.
             image_shape: (H, W).
             part_name: Eyeliner part name (e.g., 'eyeliner_left').
-            side: Eye side label ('left' or 'right') stored in each debug entry.
-            gray: Pre-computed grayscale from preprocess(). If None,
-                  preprocessing is run internally from ``image``.
+            side: Eye side label ('left' or 'right') stored in each entry.
+            eyeliner: Image to use for edge detection (defaults to image).
 
         Returns:
-            List of debug info dicts, one per corrected point. Each dict contains:
-                px, py, qx, qy, detected_x, detected_y, side, and a shared
-                reference to the preprocessed gray image. When edge detection
-                data is available, also includes samples, first_derivative,
-                second_derivative, t_values, zero_crossings, and best_idx.
+            List of debug info dicts, one per corrected edge point. Each dict
+            contains px, py, qx, qy, detected_x, detected_y, side, and the
+            source image. When edge detection ran, also includes samples,
+            first_derivative, second_derivative, t_values, zero_crossings,
+            and best_idx.
         """
         if part_name not in EYELINER_CORRECTION_MAP:
-            return []
+            raise ValueError(
+                f"Unknown part_name: '{part_name}'. "
+                f"Expected one of {sorted(EYELINER_CORRECTION_MAP.keys())}."
+            )
 
         h, w = image_shape
-        if gray is None:
-            gray = self.preprocess(image)
+        if eyeliner is None:
+            eyeliner = image
 
         # Reuse debug entries cached by the most recent correct_points call
-        # for this part (same gray array = same render pass).
-        # weakref identity (`weakref() is gray`) avoids the CPython id()-reuse hazard:
-        # if the original gray was GC'd, weakref() returns None, so the check fails.
-        cached = self._correction_cache.get(part_name)
-        if cached is not None and cached['gray_ref']() is gray:
-            return [dict(entry, side=side, gray=gray) for entry in cached['entries']]
+        # for this part (same source image = same render pass).
+        cache_key = (part_name, id(eyeliner))
+        cached = self._correction_cache.get(cache_key)
+        if cached is not None and cached['img_ref']() is eyeliner:
+            return [dict(entry, side=side, eyeliner=eyeliner) for entry in cached['entries']]
 
         # Fallback: re-run edge detection with debug info (e.g. when called
-        # outside the normal segment() → correct_points path).
+        # outside the normal correct_points path).
         coords = landmarks.to_image_coords(w, h)
         correction_map = EYELINER_CORRECTION_MAP[part_name]
+        gray = self.preprocess(eyeliner)
         debug_entries: List[dict] = []
         for _key, indices in correction_map.items():
             for idx in indices:
-                if isinstance(idx, tuple) and idx[0] == 'edge':
-                    _, p_idx, q_idx = idx
+                if idx in EDGE_LANDMARK_DIRECTIONS:
+                    p_idx, q_idx = EDGE_LANDMARK_DIRECTIONS[idx]
                     px, py = coords[p_idx]
                     qx, qy = coords[q_idx]
                     result, dbg = self.find_edge(
                         gray, px, py, qx, qy, return_debug_info=True
                     )
+                    detected_x, detected_y = result
                     entry: dict = {
                         'px': float(px), 'py': float(py),
                         'qx': float(qx), 'qy': float(qy),
-                        'detected_x': result[0], 'detected_y': result[1],
-                        'gray': gray,
+                        'detected_x': detected_x, 'detected_y': detected_y,
+                        'eyeliner': eyeliner,
                         'side': side,
                     }
                     if dbg is not None:
                         entry.update(dbg)
                     debug_entries.append(entry)
-                # Plain int landmarks pass through without edge detection —
-                # they produce no debug entry.
+                # else: plain int — no edge detection, no debug entry.
 
         return debug_entries

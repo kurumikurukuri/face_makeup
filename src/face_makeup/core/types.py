@@ -2,11 +2,8 @@
 Data structure definitions
 """
 from dataclasses import dataclass
-from typing import Tuple, Dict, Optional, TYPE_CHECKING
+from typing import Tuple, Optional
 import numpy as np
-
-if TYPE_CHECKING:
-    from typing import Type
 
 
 @dataclass
@@ -22,7 +19,7 @@ class FaceBBox:
 @dataclass
 class FaceLandmarks:
     """Landmarks (normalized coordinates)"""
-    points: np.ndarray  # shape: (478, 2), dtype: float32, range: 0..1
+    points: np.ndarray  # shape: (N, 2), dtype: float32, range: 0..1. N depends on max custom landmark ID (e.g. 1708 when max ID = 1707).
     points_3d: Optional[np.ndarray] = None  # shape: (478, 3), dtype: float32, normalized 3D coordinates
 
     def to_image_coords(self, img_width: int, img_height: int) -> np.ndarray:
@@ -123,14 +120,3 @@ class EyeIrisParams(PartParams):
             If False (default), use legacy HSV replace blend.
     """
     hue_shift: bool = False
-
-
-# PartParams subclass -> priority mapping
-# Higher values are drawn on top (higher priority)
-PARAMS_PRIORITY: Dict["Type[PartParams]", int] = {
-    CheekParams: 0,        # Bottom layer
-    LipsParams: 10,
-    EyeShadowParams: 20,   # eyelid, eyelid_edge
-    EyeLinerParams: 30,
-    EyeIrisParams: 40,     # Top layer
-}

@@ -7,11 +7,14 @@ and makeup layers. Provides a fluent API for applying makeup.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import Callable, List, Literal, Optional, Tuple
 
-import numpy as np
-
+from face_makeup.core.passes.cheek import CheekPass
+from face_makeup.core.passes.eyeliner import EyelinerPass
+from face_makeup.core.passes.eyeiris import EyeIrisPass
+from face_makeup.core.passes.eyeshadow import EyeShadowPass
+from face_makeup.core.passes.lips import LipsPass
+from face_makeup.core.pipeline import MakeupPass
 from face_makeup.core.types import (
     FaceBBox,
     FaceLandmarks,
@@ -26,42 +29,6 @@ from face_makeup.core.types import (
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class MakeupLayer:
-    """Base class for makeup layers."""
-    part_name: str
-    params: PartParams
-    mask: Optional[np.ndarray] = None  # Soft mask (float32 0-1)
-
-
-@dataclass
-class LipLayer(MakeupLayer):
-    """Lip makeup layer."""
-    pass
-
-
-@dataclass
-class CheekLayer(MakeupLayer):
-    """Cheek makeup layer."""
-    cheek_side: str = field(default='left')  # 'left' or 'right'
-
-
-@dataclass
-class EyeShadowLayer(MakeupLayer):
-    """Eye shadow makeup layer."""
-    pass
-
-
-@dataclass
-class EyeLinerLayer(MakeupLayer):
-    """Eye liner makeup layer."""
-    pass
-
-@dataclass
-class EyeIrisLayer(MakeupLayer):
-    """Eye iris makeup layer."""
-    pass
 
 class Face:
     """
@@ -158,7 +125,7 @@ class Face:
         self._bbox = bbox
         self._landmarks = landmarks
         self._change_callback = change_callback
-        self._makeup_layers: List[MakeupLayer] = []
+        self._makeup_passes: List[MakeupPass] = []
 
     @property
     def face_id(self) -> int:
@@ -176,9 +143,9 @@ class Face:
         return self._landmarks
 
     @property
-    def makeup_layers(self) -> List[MakeupLayer]:
-        """Get list of makeup layers (copy)."""
-        return self._makeup_layers.copy()
+    def makeup_passes(self) -> List[MakeupPass]:
+        """Get list of makeup passes (copy)."""
+        return self._makeup_passes.copy()
 
     def lip(
         self,
@@ -210,10 +177,7 @@ class Face:
             opacity=opacity,
             blur_strength=blur_strength
         )
-        self._makeup_layers.append(LipLayer(
-            part_name='lips',
-            params=params
-        ))
+        self._makeup_passes.append(LipsPass(params))
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added lip layer")
         return self
@@ -258,17 +222,9 @@ class Face:
             radius=radius
         )
         if side in ('left', 'both'):
-            self._makeup_layers.append(CheekLayer(
-                part_name='cheek_left',
-                params=params,
-                cheek_side='left'
-            ))
+            self._makeup_passes.append(CheekPass(params, 'left'))
         if side in ('right', 'both'):
-            self._makeup_layers.append(CheekLayer(
-                part_name='cheek_right',
-                params=params,
-                cheek_side='right'
-            ))
+            self._makeup_passes.append(CheekPass(params, 'right'))
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added cheek layer (side={side})")
         return self
@@ -307,15 +263,9 @@ class Face:
             blur_strength=blur_strength
         )
         if side in ('left', 'both'):
-            self._makeup_layers.append(EyeShadowLayer(
-                part_name='eyelid_left',
-                params=params
-            ))
+            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_left'))
         if side in ('right', 'both'):
-            self._makeup_layers.append(EyeShadowLayer(
-                part_name='eyelid_right',
-                params=params
-            ))
+            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_right'))
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added eye shadow layer (side={side})")
         return self
@@ -354,15 +304,9 @@ class Face:
             blur_strength=blur_strength
         )
         if side in ('left', 'both'):
-            self._makeup_layers.append(EyeShadowLayer(
-                part_name='eyelid_edge_left',
-                params=params
-            ))
+            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_edge_left'))
         if side in ('right', 'both'):
-            self._makeup_layers.append(EyeShadowLayer(
-                part_name='eyelid_edge_right',
-                params=params
-            ))
+            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_edge_right'))
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added eye edge layer (side={side})")
         return self
@@ -404,15 +348,9 @@ class Face:
             blur_strength=blur_strength
         )
         if side in ('left', 'both'):
-            self._makeup_layers.append(EyeLinerLayer(
-                part_name='eyeliner_left',
-                params=params
-            ))
+            self._makeup_passes.append(EyelinerPass(params, 'left'))
         if side in ('right', 'both'):
-            self._makeup_layers.append(EyeLinerLayer(
-                part_name='eyeliner_right',
-                params=params
-            ))
+            self._makeup_passes.append(EyelinerPass(params, 'right'))
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added eye liner layer (side={side})")
         return self
@@ -457,19 +395,12 @@ class Face:
             hue_shift=hue_shift
         )
         if side in ('left', 'both'):
-            self._makeup_layers.append(EyeIrisLayer(
-                part_name='eyeiris_left',
-                params=params
-            ))
+            self._makeup_passes.append(EyeIrisPass(params, 'left'))
         if side in ('right', 'both'):
-            self._makeup_layers.append(EyeIrisLayer(
-                part_name='eyeiris_right',
-                params=params
-            ))
+            self._makeup_passes.append(EyeIrisPass(params, 'right'))
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added eye iris layer (side={side})")
         return self
-            
     def clear(self) -> Face:
         """
         Clear all makeup layers.
@@ -477,7 +408,7 @@ class Face:
         Returns:
             Self for chaining.
         """
-        self._makeup_layers.clear()
+        self._makeup_passes.clear()
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Cleared all makeup layers")
         return self

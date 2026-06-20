@@ -8,27 +8,14 @@ from unittest import mock
 
 from face_makeup.rendering_pipeline import RenderingPipeline
 from face_makeup.face import Face
-from face_makeup.core.segmenter import FaceSegmenter
-from face_makeup.core.makeup_blender import MakeupBlender
 from face_makeup.core.types import FaceBBox, FaceLandmarks
+from face_makeup.core.landmark_resolver import extend_landmarks
 
 
 @pytest.fixture
-def segmenter():
-    """FaceSegmenter instance."""
-    return FaceSegmenter()
-
-
-@pytest.fixture
-def blender():
-    """MakeupBlender instance."""
-    return MakeupBlender()
-
-
-@pytest.fixture
-def pipeline(segmenter, blender):
+def pipeline():
     """RenderingPipeline instance."""
-    return RenderingPipeline(segmenter, blender)
+    return RenderingPipeline()
 
 
 @pytest.fixture
@@ -39,9 +26,10 @@ def test_bbox():
 
 @pytest.fixture
 def test_landmarks():
-    """Test landmarks (468 points)."""
-    from face_makeup.core.types import FaceLandmarks
-    return FaceLandmarks(points=np.random.rand(468, 2).astype(np.float32))
+    """Test landmarks (478 base points, extended with custom)."""
+    return extend_landmarks(
+        FaceLandmarks(points=np.random.rand(478, 2).astype(np.float32))
+    )
 
 
 @pytest.fixture
@@ -63,8 +51,8 @@ class SimpleContext:
 class TestRenderingPipelineInitialization:
     """Tests for RenderingPipeline initialization."""
 
-    def test_pipeline_initializes_with_segmenter_and_blender(self, pipeline, segmenter, blender):
-        """Test that pipeline initializes with segmenter and blender."""
+    def test_pipeline_initializes(self, pipeline):
+        """Test that pipeline initializes correctly."""
         assert pipeline is not None
         assert pipeline.cache_size == 0
 
@@ -185,13 +173,13 @@ class TestRenderingPipelineRender:
         face1 = Face(
             face_id=0,
             bbox=FaceBBox(x=100, y=100, w=200, h=200, score=0.95),
-            landmarks=FaceLandmarks(points=np.random.rand(468, 2).astype(np.float32)),
+            landmarks=extend_landmarks(FaceLandmarks(points=np.random.rand(478, 2).astype(np.float32))),
             change_callback=None
         )
         face2 = Face(
             face_id=1,
             bbox=FaceBBox(x=350, y=100, w=200, h=200, score=0.95),
-            landmarks=FaceLandmarks(points=np.random.rand(468, 2).astype(np.float32)),
+            landmarks=extend_landmarks(FaceLandmarks(points=np.random.rand(478, 2).astype(np.float32))),
             change_callback=None
         )
 
@@ -222,20 +210,18 @@ class TestRenderingPipelineSharedPipeline:
     def test_pipeline_shared_across_contexts(self, test_image):
         """Test that multiple contexts can share the same pipeline."""
         from face_makeup.core.types import FaceLandmarks
-        segmenter = FaceSegmenter()
-        blender = MakeupBlender()
-        pipeline = RenderingPipeline(segmenter, blender)
+        pipeline = RenderingPipeline()
 
         face1 = Face(
             face_id=0,
             bbox=FaceBBox(x=100, y=100, w=200, h=200, score=0.95),
-            landmarks=FaceLandmarks(points=np.random.rand(468, 2).astype(np.float32)),
+            landmarks=extend_landmarks(FaceLandmarks(points=np.random.rand(478, 2).astype(np.float32))),
             change_callback=None
         )
         face2 = Face(
             face_id=0,
             bbox=FaceBBox(x=100, y=100, w=200, h=200, score=0.95),
-            landmarks=FaceLandmarks(points=np.random.rand(468, 2).astype(np.float32)),
+            landmarks=extend_landmarks(FaceLandmarks(points=np.random.rand(478, 2).astype(np.float32))),
             change_callback=None
         )
 
