@@ -116,9 +116,13 @@ class EyeIrisParams(PartParams):
     """Parameters for eye iris (color contact lens effect).
 
     Used to apply colored contact lens effect to the iris area.
-    Currently uses base class parameters only.
+
+    Attributes:
+        hue_shift: If True, use hue-shift blend (cut→shift→paste).
+            Preserves original S/V channels; only H is shifted to target hue.
+            If False (default), use legacy HSV replace blend.
     """
-    pass
+    hue_shift: bool = False
 
 
 # PartParams subclass -> priority mapping

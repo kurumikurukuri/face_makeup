@@ -423,7 +423,8 @@ class Face:
         side: Literal['left', 'right', 'both'] = 'both',
         color: Tuple[int, int, int],
         opacity: float = 0.5,
-        blur_strength: float = 0.5
+        blur_strength: float = 0.5,
+        hue_shift: bool = False
     ) -> Face:
         """
         Add eye iris (color contact lens) makeup.
@@ -434,12 +435,16 @@ class Face:
             opacity: Makeup strength 0.0-1.0.
             blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
                 this fraction of opacity; center stays 1.0.
+            hue_shift: If True, use hue-shift blend: shifts only the H
+                channel to target hue while preserving original S/V.
+                If False (default), use legacy HSV replace blend.
 
         Returns:
             Self for chaining.
 
         Examples:
             >>> face.eyeiris(color=(100, 150, 255), opacity=0.5)
+            >>> face.eyeiris(color=(100, 150, 255), opacity=0.5, hue_shift=True)
         """
         self._validate_side(side)
         self._validate_color(color)
@@ -448,7 +453,8 @@ class Face:
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength
+            blur_strength=blur_strength,
+            hue_shift=hue_shift
         )
         if side in ('left', 'both'):
             self._makeup_layers.append(EyeIrisLayer(

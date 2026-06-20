@@ -83,8 +83,7 @@ def sample_face_image(test_images_dir):
             if img is not None:
                 return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    # Return a synthetic image if no test images found
-    return np.zeros((480, 640, 3), dtype=np.uint8)
+    pytest.skip("No test images found in %s" % test_images_dir)
 
 
 @pytest.fixture

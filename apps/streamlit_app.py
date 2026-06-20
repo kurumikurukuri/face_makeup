@@ -22,9 +22,12 @@ import numpy as np
 import io
 from datetime import datetime
 
-import pillow_heif
-pillow_heif.register_heif_opener()
-HEIF_SUPPORTED = True
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    HEIF_SUPPORTED = True
+except ImportError:
+    HEIF_SUPPORTED = False
 
 
 
@@ -40,7 +43,20 @@ def rgb_to_hex(r, g, b):
 
 def hex_to_rgb(hex_color):
     hex_color = hex_color.lstrip('#')
+    if len(hex_color) != 6:
+        raise ValueError(f"Invalid hex color: #{hex_color}")
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _on_separate_colors_change():
+    """Handle separate colors checkbox change event for eye iris settings."""
+    if st.session_state.eyeiris_separate_colors:
+        # Propagate unified color to both eyes
+        st.session_state.eyeiris_color_left = st.session_state.eyeiris_color
+        st.session_state.eyeiris_color_right = st.session_state.eyeiris_color
+    else:
+        # Revert unified color from left eye
+        st.session_state.eyeiris_color = st.session_state.eyeiris_color_left
 
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -166,6 +182,9 @@ _SESSION_DEFAULTS = {
     'eyeiris_enabled': False,
     'eyeiris_color': "#6496FF",
     'eyeiris_opacity': 0.5,
+    'eyeiris_separate_colors': False,
+    'eyeiris_color_left': "#6496FF",
+    'eyeiris_color_right': "#6496FF",
 }
 for _key, _default in _SESSION_DEFAULTS.items():
     if _key not in st.session_state:
@@ -384,12 +403,36 @@ with st.sidebar:
         )
 
         if eyeiris_enabled:
-            eyeiris_color = st.color_picker(
-                "虹彩カラー",
-                value=st.session_state.eyeiris_color,
-                key="eyeiris_color"
+            st.checkbox(
+                "左右別々に設定",
+                value=st.session_state.eyeiris_separate_colors,
+                key="eyeiris_separate_colors",
+                on_change=_on_separate_colors_change
             )
-            st.caption(f"RGB: {hex_to_rgb(eyeiris_color)}")
+
+            if st.session_state.eyeiris_separate_colors:
+                col_left, col_right = st.columns(2)
+                with col_left:
+                    eyeiris_color_left = st.color_picker(
+                        "左目カラー",
+                        value=st.session_state.eyeiris_color_left,
+                        key="eyeiris_color_left"
+                    )
+                    st.caption(f"RGB: {hex_to_rgb(eyeiris_color_left)}")
+                with col_right:
+                    eyeiris_color_right = st.color_picker(
+                        "右目カラー",
+                        value=st.session_state.eyeiris_color_right,
+                        key="eyeiris_color_right"
+                    )
+                    st.caption(f"RGB: {hex_to_rgb(eyeiris_color_right)}")
+            else:
+                eyeiris_color = st.color_picker(
+                    "虹彩カラー",
+                    value=st.session_state.eyeiris_color,
+                    key="eyeiris_color"
+                )
+                st.caption(f"RGB: {hex_to_rgb(eyeiris_color)}")
 
             st.slider(
                 "不透明度",
@@ -419,15 +462,6 @@ with st.sidebar:
             del st.session_state['result_image']
         st.rerun()
 
-    # Usage instructions
-    st.markdown("---")
-    st.subheader("📖 使い方")
-    st.markdown("""
-    1. 顔写真をアップロード
-    2. 各パラメータを調整（💋リップ、🌸チーク、👁️アイシャドウ、✏️アイライナー、👁️カラコン）
-    3. 「メイクを適用」ボタンをクリック
-    4. 結果を確認・ダウンロード
-    """)
 
 
 # ========================================
@@ -525,6 +559,8 @@ if image_source is not None:
 
                     if not any_enabled:
                         st.info("少なくとも1つのメイクオプションを有効にしてください")
+                    elif ctx.face_count == 0:
+                        st.warning("顔が検出されませんでした。正面顔写真をご使用ください。")
                     else:
                         # Get the first face
                         face = ctx.faces[0]
@@ -578,12 +614,26 @@ if image_source is not None:
 
                         # Apply eye iris (color contact)
                         if st.session_state.eyeiris_enabled:
-                            face.eyeiris(
-                                color=hex_to_rgb(st.session_state.eyeiris_color),
-                                opacity=st.session_state.eyeiris_opacity,
-                                blur_strength=0.5,
-                                side='both'
-                            )
+                            if st.session_state.eyeiris_separate_colors:
+                                face.eyeiris(
+                                    color=hex_to_rgb(st.session_state.eyeiris_color_left),
+                                    opacity=st.session_state.eyeiris_opacity,
+                                    blur_strength=0.5,
+                                    side='left'
+                                )
+                                face.eyeiris(
+                                    color=hex_to_rgb(st.session_state.eyeiris_color_right),
+                                    opacity=st.session_state.eyeiris_opacity,
+                                    blur_strength=0.5,
+                                    side='right'
+                                )
+                            else:
+                                face.eyeiris(
+                                    color=hex_to_rgb(st.session_state.eyeiris_color),
+                                    opacity=st.session_state.eyeiris_opacity,
+                                    blur_strength=0.5,
+                                    side='both'
+                                )
 
                         # Render result
                         result_np = ctx.render(debug=debug_mode)
@@ -650,7 +700,11 @@ if image_source is not None:
 
                     if st.session_state.eyeiris_enabled:
                         st.write("**カラーコンタクト**")
-                        st.write(f"- カラー: {st.session_state.eyeiris_color} {hex_to_rgb(st.session_state.eyeiris_color)}")
+                        if st.session_state.eyeiris_separate_colors:
+                            st.write(f"- 左目カラー: {st.session_state.eyeiris_color_left} {hex_to_rgb(st.session_state.eyeiris_color_left)}")
+                            st.write(f"- 右目カラー: {st.session_state.eyeiris_color_right} {hex_to_rgb(st.session_state.eyeiris_color_right)}")
+                        else:
+                            st.write(f"- カラー: {st.session_state.eyeiris_color} {hex_to_rgb(st.session_state.eyeiris_color)}")
                         st.write(f"- 不透明度: {st.session_state.eyeiris_opacity}")
 
     except Exception as e:
@@ -696,8 +750,4 @@ else:
 # ========================================
 
 st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: gray;'>
-    <p>💄 メイクシミュレーター | Powered by MediaPipe & OpenCV</p>
-</div>
-""", unsafe_allow_html=True)
+st.caption("💄 メイクシミュレーター | Powered by MediaPipe & OpenCV")

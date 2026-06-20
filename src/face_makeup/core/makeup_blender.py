@@ -210,13 +210,70 @@ class MakeupBlender:
             params: Eyeliner parameters (thickness adjusts line width).
         """
         # Dilate mask according to thickness
+        effective_mask = mask
         if params.thickness > 1:
             kernel = np.ones((params.thickness, params.thickness), np.uint8)
             mask_uint8 = (mask * 255).astype(np.uint8)
             mask_dilated = cv2.dilate(mask_uint8, kernel, iterations=1)
-            mask = mask_dilated.astype(np.float32) / 255.0
+            effective_mask = mask_dilated.astype(np.float32) / 255.0
 
-        return self.blend(image, mask, params.color_params, params.opacity, params.blur_strength)
+        return self.blend(image, effective_mask, params.color_params, params.opacity, params.blur_strength)
+
+    def _blend_eyeiris_hue_shift(self,
+                                 image: np.ndarray,
+                                 mask: np.ndarray,
+                                 params: EyeIrisParams) -> np.ndarray:
+        """
+        Hue-shift blend for iris : cut → shift → paste).
+
+        Extracts the iris region, shifts its H channel to the target hue
+        while keeping original S and V, then alpha-blends back.
+
+        Args:
+            image: Input RGB uint8 image.
+            mask: Iris mask (float32 0-1 or uint8 0/255).
+            params: Eye iris parameters.
+
+        Returns:
+            RGB uint8 image with hue-shifted iris blended in.
+        """
+        soft_mask = self._soften_mask(mask, params.blur_strength)
+
+        # Target color in HSV (float32 image → H 0-360, S/V 0-1)
+        target_rgb_f = np.array(params.color_params.target_rgb, dtype=np.float32) / 255.0
+        target_hsv = cv2.cvtColor(target_rgb_f.reshape(1, 1, 3), cv2.COLOR_RGB2HSV)[0, 0]
+        target_h = float(target_hsv[0])
+        target_s = float(target_hsv[1])
+
+        image_float = image.astype(np.float32) / 255.0
+        blend_weight = soft_mask[:, :, np.newaxis] * params.opacity
+
+        # Achromatic fallback: mirrors legacy is_neutral branch to avoid
+        # spurious red tint when target color is black/grey/white (S≈0)
+        if target_s < 0.05:
+            darken_factor = np.clip(1.0 - blend_weight, 0.0, 1.0)
+            return np.clip(image_float * darken_factor * 255.0, 0, 255).astype(np.uint8)
+
+        # Convert image to float32 HSV
+        hsv = cv2.cvtColor(image_float, cv2.COLOR_RGB2HSV)
+
+        # Interpolate H toward target using short angular path (circular lerp).
+        # S interpolates linearly (non-circular), V stays at original value.
+        # This avoids a hard hue boundary at mask edges (vs binary mask_bool > 0).
+        hsv_shifted = hsv.copy()
+        h_diff = target_h - hsv[:, :, 0]
+        h_diff = (h_diff + 180.0) % 360.0 - 180.0  # normalize to [-180, 180)
+        hsv_shifted[:, :, 0] = (hsv[:, :, 0] + soft_mask * h_diff) % 360.0
+        hsv_shifted[:, :, 1] = soft_mask * target_s + (1.0 - soft_mask) * hsv[:, :, 1]
+        # V stays at original value to preserve luminance texture
+
+        # Convert back to RGB
+        rgb_shifted = cv2.cvtColor(hsv_shifted, cv2.COLOR_HSV2RGB)
+
+        # Alpha blend: shifted region composited over original
+        result_float = rgb_shifted * blend_weight + image_float * (1.0 - blend_weight)
+
+        return np.clip(result_float * 255.0, 0, 255).astype(np.uint8)
 
     def blend_eyeiris(self,
                       image: np.ndarray,
@@ -231,6 +288,9 @@ class MakeupBlender:
         or blinking. eye_mask (the eye-opening polygon) clips the ellipse
         back down to the actual eye region so color never bleeds onto skin.
 
+        Dispatches to hue-shift blend when params.hue_shift is True,
+        otherwise uses legacy HSV replace blend.
+
         Args:
             image: Input image.
             eyeiris_mask: Iris ellipse mask (H, W) float32 or uint8 0/255.
@@ -243,6 +303,8 @@ class MakeupBlender:
         if eye_mask is None:
             raise ValueError("eye_mask is required for iris makeup")
         combined_mask = self._create_eyeiris_mask(eyeiris_mask, eye_mask)
+        if params.hue_shift:
+            return self._blend_eyeiris_hue_shift(image, combined_mask, params)
         return self.blend(image, combined_mask, params.color_params, params.opacity, params.blur_strength)
 
     def _create_eyeiris_mask(self,
