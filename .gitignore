@@ -17,3 +17,4 @@ outputs/
 .coverage
 *.egg-info/
 tasks/
+models/hair_segmenter.tflite

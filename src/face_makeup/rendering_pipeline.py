@@ -34,10 +34,14 @@ class RenderingPipeline:
         >>> result = ctx.render()  # Uses cached result if available
     """
 
-    def __init__(self):
+    def __init__(self, hair_segmenter: object = None):
         """
         Initialize rendering pipeline.
+
+        Args:
+            hair_segmenter: Optional HairSegmenter for hair mask subtraction.
         """
+        self._hair_segmenter = hair_segmenter
         # Cache keyed by ImageContext object (auto-cleanup via weak references)
         self._cache: WeakKeyDictionary[ImageContext, np.ndarray] = WeakKeyDictionary()
 
@@ -80,7 +84,8 @@ class RenderingPipeline:
             visualizer = DebugVisualizer()
 
         renderer = Renderer(
-            visualizer=visualizer
+            visualizer=visualizer,
+            hair_segmenter=self._hair_segmenter,
         )
 
         result = renderer.compose(

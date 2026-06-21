@@ -35,15 +35,18 @@ class Renderer:
 
     def __init__(
         self,
-        visualizer: Optional[DebugVisualizer] = None
+        visualizer: Optional[DebugVisualizer] = None,
+        hair_segmenter: Optional[object] = None
     ):
         """
         Initialize renderer.
 
         Args:
             visualizer: Optional debug visualizer.
+            hair_segmenter: Optional HairSegmenter for hair mask subtraction.
         """
         self._visualizer = visualizer
+        self._hair_segmenter = hair_segmenter
 
     def render_face(
         self,
@@ -74,6 +77,11 @@ class Renderer:
         mask_registry: Dict[str, np.ndarray] = {}
         hard_masks: Dict[str, np.ndarray] = {}
 
+        # Run hair segmentation once and subtract from every pass mask
+        hair_mask = None
+        if self._hair_segmenter is not None:
+            hair_mask = self._hair_segmenter.segment(image)
+
         for pass_ in topological_sort(list(passes)):
             if pass_.mask_strategy is None:
                 logger.warning(f"No mask strategy for pass: {pass_.pass_type}")
@@ -84,6 +92,10 @@ class Renderer:
                 image=image,
                 landmarks=face.landmarks,
             )
+
+            # Subtract hair mask (applied to all passes)
+            if hair_mask is not None:
+                mask = cv2.subtract(mask, hair_mask)
 
             # Subtract exclusion masks
             for exclusion_name in pass_.exclusion_passes:

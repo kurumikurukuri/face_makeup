@@ -7,9 +7,12 @@ Note: This class is NOT thread-safe. Create separate instances for concurrent us
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
-from typing import Optional
 from pathlib import Path
+from typing import Optional
+from urllib import request
+
 import numpy as np
 
 from face_makeup.core.face_detector import FaceDetector
@@ -20,6 +23,82 @@ from face_makeup.context import ImageContext
 from face_makeup.face import Face
 
 logger = logging.getLogger(__name__)
+
+_HAIR_MODEL_FILENAME = "hair_segmenter.tflite"
+_HAIR_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-assets/hair_segmentation.tflite"
+)
+
+
+def _download_hair_model(model_path: Path) -> bool:
+    """Download hair segmentation model.
+
+    Uses urllib (stdlib) — no extra dependencies needed.
+    Downloads to a temp file and renames atomically to avoid leaving
+    a partial file on interrupt.
+
+    Args:
+        model_path: Destination path for the model file.
+
+    Returns:
+        True if download succeeded, False otherwise.
+    """
+    model_dir = model_path.parent
+    model_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = model_path.with_suffix(model_path.suffix + ".download")
+
+    logger.info(
+        "Downloading %s from %s ...",
+        _HAIR_MODEL_FILENAME,
+        _HAIR_MODEL_URL,
+    )
+
+    try:
+        req = request.Request(_HAIR_MODEL_URL)
+        with request.urlopen(req, timeout=60) as resp:
+            total = resp.headers.get("Content-Length")
+            total_bytes = int(total) if total else None
+            downloaded = 0
+
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_bytes:
+                        pct = downloaded * 100 // total_bytes
+                        if pct % 20 < 5 and downloaded % (total_bytes // 5) < 8192:
+                            logger.info(
+                                "  %d%% (%d / %d bytes)", pct, downloaded, total_bytes
+                            )
+
+            os.replace(tmp_path, model_path)
+            logger.info(
+                "Downloaded %s (%d bytes)",
+                _HAIR_MODEL_FILENAME,
+                downloaded,
+            )
+            return True
+
+    except Exception:
+        logger.warning(
+            "Failed to download %s. "
+            "Hair exclusion will be skipped. "
+            "Download it manually with: "
+            "curl -L -o models/%s %s",
+            _HAIR_MODEL_FILENAME,
+            _HAIR_MODEL_FILENAME,
+            _HAIR_MODEL_URL,
+            exc_info=True,
+        )
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        return False
 
 
 @dataclass
@@ -65,8 +144,32 @@ class MakeupProcessor:
             min_tracking_confidence=self._config.min_tracking_confidence
         )
 
+        # Create hair segmenter (auto-download if model is missing)
+        hair_segmenter = None
+        try:
+            model_dir = Path(__file__).parent.parent.parent / "models"
+            model_path = model_dir / _HAIR_MODEL_FILENAME
+
+            if not model_path.exists():
+                if not _download_hair_model(model_path):
+                    pass  # Download failed — warning already logged
+
+            if model_path.exists():
+                from face_makeup.core.hair_segmenter import HairSegmenter
+                hair_segmenter = HairSegmenter(str(model_path))
+                logger.info("HairSegmenter loaded for hair exclusion")
+        except ImportError:
+            logger.warning(
+                "HairSegmenter dependencies not available, skipping hair exclusion"
+            )
+        except Exception:
+            logger.warning(
+                "Failed to initialize HairSegmenter, skipping hair exclusion",
+                exc_info=True,
+            )
+
         # Create rendering pipeline (shared across all contexts)
-        self._rendering_pipeline = RenderingPipeline()
+        self._rendering_pipeline = RenderingPipeline(hair_segmenter=hair_segmenter)
 
         # Create I/O handler
         self._io_handler = IOHandler()
