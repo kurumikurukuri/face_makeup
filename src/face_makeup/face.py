@@ -106,6 +106,20 @@ class Face:
         if not isinstance(blur_strength, (int, float)) or not 0.0 <= blur_strength <= 1.0:
             raise ValueError(f"blur_strength must be 0.0-1.0, got {blur_strength}")
 
+    @staticmethod
+    def _validate_glitter(glitter: float) -> None:
+        """
+        Validate glitter value.
+
+        Args:
+            glitter: Glitter intensity 0.0-1.0.
+
+        Raises:
+            ValueError: If glitter is not in valid range.
+        """
+        if not isinstance(glitter, (int, float)) or not 0.0 <= glitter <= 1.0:
+            raise ValueError(f"glitter must be 0.0-1.0, got {glitter}")
+
     def __init__(
         self,
         face_id: int,
@@ -236,7 +250,8 @@ class Face:
         side: Literal['left', 'right', 'both'] = 'both',
         color: Tuple[int, int, int],
         opacity: float = 0.3,
-        blur_strength: float = 0.5
+        blur_strength: float = 0.5,
+        glitter: float = 0.0
     ) -> Face:
         """
         Add eye shadow makeup.
@@ -247,21 +262,26 @@ class Face:
             opacity: Makeup strength 0.0-1.0.
             blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
                 this fraction of opacity; center stays 1.0.
+            glitter: Glitter (lamé) effect intensity 0.0-1.0.
+                0.0 = matte only (default). Higher values add sparkle.
 
         Returns:
             Self for chaining.
 
         Examples:
             >>> face.eyelid(color=(180, 130, 150), opacity=0.3)
+            >>> face.eyelid(color=(180, 130, 150), glitter=0.5)
         """
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
         self._validate_blur_strength(blur_strength)
+        self._validate_glitter(glitter)
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength
+            blur_strength=blur_strength,
+            glitter=glitter
         )
         if side in ('left', 'both'):
             self._makeup_passes.append(EyeShadowPass(params, 'eyelid_left'))
@@ -277,7 +297,8 @@ class Face:
         side: Literal['left', 'right', 'both'] = 'both',
         color: Tuple[int, int, int],
         opacity: float = 0.3,
-        blur_strength: float = 0.5
+        blur_strength: float = 0.5,
+        glitter: float = 0.0
     ) -> Face:
         """
         Add eye edge (extended area) makeup.
@@ -288,21 +309,26 @@ class Face:
             opacity: Makeup strength 0.0-1.0.
             blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
                 this fraction of opacity; center stays 1.0.
+            glitter: Glitter (lamé) effect intensity 0.0-1.0.
+                0.0 = matte only (default). Higher values add sparkle.
 
         Returns:
             Self for chaining.
 
         Examples:
             >>> face.eyelid_edge(color=(245, 41, 41), opacity=0.3)
+            >>> face.eyelid_edge(color=(245, 41, 41), glitter=0.5)
         """
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
         self._validate_blur_strength(blur_strength)
+        self._validate_glitter(glitter)
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength
+            blur_strength=blur_strength,
+            glitter=glitter
         )
         if side in ('left', 'both'):
             self._makeup_passes.append(EyeShadowPass(params, 'eyelid_edge_left'))

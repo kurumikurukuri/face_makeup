@@ -176,9 +176,11 @@ _SESSION_DEFAULTS = {
     'eyelid_enabled': False,
     'eyelid_color': "#E0588C",
     'eyelid_opacity': 0.3,
+    'eyelid_glitter': 0.0,
     'eyelid_edge_enabled': False,
     'eyelid_edge_color': "#F52929",
     'eyelid_edge_opacity': 0.5,
+    'eyelid_edge_glitter': 0.0,
     'eyeliner_enabled': False,
     'eyeliner_color': "#000000",
     'eyeliner_thickness': 2,
@@ -370,6 +372,16 @@ with st.sidebar:
                 help="メイクの強さ（0: 透明、1: 最大）"
             )
 
+            st.slider(
+                "グリッター（ラメ）",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.eyelid_glitter,
+                step=0.05,
+                key="eyelid_glitter",
+                help="ラメ効果の強さ（0: なし、1: 最大）"
+            )
+
     # Eye shadow (edge) settings
     with st.expander("👁️ アイシャドウ（エッジ）", expanded=False):
         eyelid_edge_enabled = st.checkbox(
@@ -395,6 +407,16 @@ with st.sidebar:
                 step=0.1,
                 key="eyelid_edge_opacity",
                 help="メイクの強さ（0: 透明、1: 最大）"
+            )
+
+            st.slider(
+                "グリッター（ラメ）",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.eyelid_edge_glitter,
+                step=0.05,
+                key="eyelid_edge_glitter",
+                help="ラメ効果の強さ（0: なし、1: 最大）"
             )
 
     # Eyeliner settings
@@ -628,6 +650,7 @@ if image_source is not None:
                                 color=hex_to_rgb(st.session_state.eyelid_color),
                                 opacity=st.session_state.eyelid_opacity,
                                 blur_strength=0.25,
+                                glitter=st.session_state.eyelid_glitter,
                                 side='both'
                             )
 
@@ -637,6 +660,7 @@ if image_source is not None:
                                 color=hex_to_rgb(st.session_state.eyelid_edge_color),
                                 opacity=st.session_state.eyelid_edge_opacity,
                                 blur_strength=0.25,
+                                glitter=st.session_state.eyelid_edge_glitter,
                                 side='both'
                             )
 
@@ -730,11 +754,13 @@ if image_source is not None:
                         st.write("**アイシャドウ**")
                         st.write(f"- カラー: {st.session_state.eyelid_color} {hex_to_rgb(st.session_state.eyelid_color)}")
                         st.write(f"- 不透明度: {st.session_state.eyelid_opacity}")
+                        st.write(f"- グリッター: {st.session_state.eyelid_glitter:.2f}")
 
                     if st.session_state.eyelid_edge_enabled:
                         st.write("**アイシャドウ（エッジ）**")
                         st.write(f"- カラー: {st.session_state.eyelid_edge_color} {hex_to_rgb(st.session_state.eyelid_edge_color)}")
                         st.write(f"- 不透明度: {st.session_state.eyelid_edge_opacity}")
+                        st.write(f"- グリッター: {st.session_state.eyelid_edge_glitter:.2f}")
 
                     if st.session_state.eyeliner_enabled:
                         st.write("**アイライナー**")

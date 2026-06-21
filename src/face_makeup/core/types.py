@@ -86,12 +86,28 @@ class CheekParams(PartParams):
 
 @dataclass
 class EyeShadowParams(PartParams):
-    """Parameters for eyeshadow
+    """Parameters for eyeshadow.
 
-    Gradient functionality is planned to be added in the future.
-    Currently, only the parameters from the base class are used.
+    Attributes:
+        glitter: Glitter (lamé) effect intensity 0.0-1.0.
+            0.0 = matte only (current behaviour, default).
+            Higher values increase glitter particle density/visibility.
+        seed: Optional integer seed for deterministic glitter particle
+            generation. When None (default), each call uses a fresh
+            unpredictable RNG; pass an integer for reproducible output
+            (useful for tests and comparison shots).
     """
-    pass
+
+    glitter: float = 0.0
+    seed: int | None = None
+
+    def __post_init__(self):
+        """Validate parameter bounds."""
+        super().__post_init__()
+        if not isinstance(self.glitter, (int, float)) or not 0.0 <= self.glitter <= 1.0:
+            raise ValueError(f"glitter must be 0.0-1.0, got {self.glitter}")
+        if self.seed is not None and not isinstance(self.seed, int):
+            raise ValueError(f"seed must be None or int, got {type(self.seed).__name__}")
 
 
 @dataclass

@@ -122,6 +122,108 @@ def apply_hue_shift_blend(
     return np.clip(result_float * 255.0, 0, 255).astype(np.uint8)
 
 
+def apply_glitter(
+    image: np.ndarray,
+    mask: np.ndarray,
+    glitter_intensity: float,
+    rng: np.random.Generator | None = None,
+    base_size: float = 0.5,
+    density_scale: float = 0.03,
+    min_distance_factor: float = 1,
+    sparkle_alpha: float = 0.8,
+    sparkle_blur_sigma: float = 1.0,
+    bloom_threshold: float = 0.3,
+    bloom_strength: float | None = None,
+    bloom_sigma: float | None = None,
+) -> np.ndarray:
+    """Apply glitter (lamé) effect over a matte-blended region.
+
+    Uses Poisson-disk particle generation, Gaussian sparkle rendering,
+    phase-based twinkle, and phase-based interference-style hue shift for a
+    cosmetic-grade glitter look. Both brightness and colour are driven by
+    each particle's random static phase rather than 3D view angle — angle
+    tracking added significant code for a visually negligible effect.
+    Particle colour is a fixed silver-white independent of the eyeshadow
+    colour underneath, rather than a lit-up tint of it.
+
+    Args:
+        image: BGR uint8 image (H, W, 3) — matte blend already applied.
+        mask: Soft mask float32 (0.0-1.0).
+        glitter_intensity: 0.0-1.0 — controls particle density and bloom.
+        rng: Optional random generator (deterministic with seed for tests).
+        base_size: Base particle radius in pixels (default 0.5).
+        density_scale: Multiplier on mask_area * intensity for target
+            particle count (default 0.03).
+        min_distance_factor: Poisson-disk rejection radius as a fraction
+            of the average-cell spacing (default 1).
+        sparkle_alpha: Additive blend strength for sparkle overlay (default 0.8).
+        sparkle_blur_sigma: Gaussian blur sigma for sparkle softening (default 1.0).
+        bloom_threshold: Fraction of peak overlay luminance for bloom trigger
+            (default 0.3).
+        bloom_strength: Override bloom blend strength. Defaults to 0.3 * intensity.
+        bloom_sigma: Gaussian blur sigma for bloom halo. Defaults to
+            8.0 + intensity * 16.0.
+
+    Returns:
+        BGR uint8 image with glitter overlay applied (new array).
+    """
+    from face_makeup.core.blend.glitter import (
+        apply_bloom,
+        compute_iridescent_colors,
+        compute_static_twinkle,
+        generate_particles,
+        render_sparkle_overlay,
+    )
+
+    if glitter_intensity <= 0.0:
+        return image
+
+    rng = rng or np.random.default_rng()
+
+    mask_bool = mask > 0.1
+    if not mask_bool.any():
+        return image
+
+    # 1. Generate particles
+    particles = generate_particles(
+        mask, glitter_intensity, rng,
+        base_size=base_size,
+        density_scale=density_scale,
+        min_distance_factor=min_distance_factor,
+    )
+
+    if len(particles.positions) == 0:
+        return image
+
+    # 2. Compute per-particle brightness (random static twinkle)
+    brightness = compute_static_twinkle(particles.phases)
+
+    # 3. Compute per-particle iridescent colour (spec §4: 偏光・干渉)
+    colors = compute_iridescent_colors(
+        particles.positions, particles.phases, particles.base_color,
+    )
+
+    # 4. Render sparkles to overlay
+    sparkle_overlay = render_sparkle_overlay(
+        image.shape[:2], particles, brightness, colors=colors,
+        blur_sigma=sparkle_blur_sigma,
+    )
+
+    # 5. Composite additively
+    result = image.astype(np.float32) + sparkle_overlay * sparkle_alpha
+    result = np.clip(result, 0, 255).astype(np.uint8)
+
+    # 6. Bloom post-processing
+    result = apply_bloom(
+        result, sparkle_overlay, glitter_intensity,
+        threshold=bloom_threshold,
+        bloom_strength=bloom_strength,
+        bloom_sigma=bloom_sigma,
+    )
+
+    return result
+
+
 def standard_blend(
     image: np.ndarray,
     mask: np.ndarray,

@@ -3,6 +3,8 @@ Eye shadow makeup pass — polygon mask + HSV-aware blend.
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import cv2
 import numpy as np
 
@@ -13,8 +15,11 @@ from face_makeup.constants import (
     EYELID_RIGHT_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.passes.blend_utils import standard_blend
+from face_makeup.core.blend.blend_utils import apply_glitter, standard_blend
 from face_makeup.core.types import EyeShadowParams
+
+if TYPE_CHECKING:
+    from face_makeup.core.types import FaceLandmarks
 
 
 class EyeShadowMaskStrategy(MaskStrategy):
@@ -47,7 +52,7 @@ class EyeShadowMaskStrategy(MaskStrategy):
 
 
 class EyeShadowBlendStrategy(BlendStrategy):
-    """Standard HSV-aware blend for eye shadow."""
+    """Standard HSV-aware blend with optional glitter (lamé) overlay."""
 
     def apply(
         self,
@@ -56,14 +61,18 @@ class EyeShadowBlendStrategy(BlendStrategy):
         params: EyeShadowParams,
         blender: object | None = None,
         segmenter: object | None = None,
-        landmarks: object | None = None,
+        landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
-        return standard_blend(
+        result = standard_blend(
             image, mask,
             params.color_params.target_rgb,
             params.opacity,
             params.blur_strength,
         )
+        if params.glitter > 0:
+            rng = np.random.default_rng(params.seed) if params.seed is not None else None
+            result = apply_glitter(result, mask, params.glitter, rng=rng)
+        return result
 
 
 _INDICES_MAP = {

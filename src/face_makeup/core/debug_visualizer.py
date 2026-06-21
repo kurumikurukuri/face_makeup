@@ -21,6 +21,7 @@ except ImportError:
     _MATPLOTLIB_AVAILABLE = False
 
 if TYPE_CHECKING:
+    from .blend.glitter import ParticleSet
     from .types import FaceBBox, FaceLandmarks, CheekParams
 
 logger = logging.getLogger(__name__)
@@ -655,6 +656,126 @@ class DebugVisualizer:
         fig.savefig(path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         logger.debug(f"Saved cheek UV visualization: {path}")
+
+    def save_glitter_particles(
+        self,
+        image: np.ndarray,
+        particles: "ParticleSet",
+        brightness: np.ndarray,
+        session_id: str,
+        colors: np.ndarray | None = None,
+    ) -> None:
+        """
+        Save image with glitter particle positions overlaid as colored dots.
+
+        Draws a filled circle at each particle position, sized by the particle's
+        radius and coloured by its iridescent colour times its brightness.
+        Useful for verifying particle placement, density, and colour distribution.
+
+        Args:
+            image: RGB image (H, W, 3).
+            particles: ParticleSet from ``generate_particles``.
+            brightness: (P,) float32 per-particle brightness in [0, 1].
+            session_id: Session identifier for filename.
+            colors: Optional (P, 3) float32 per-particle BGR colours (0-255).
+                Defaults to ``particles.base_color`` for every particle.
+        """
+        img = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        if len(particles.positions) == 0:
+            self._save_image(image, session_id, "glitter_particles")
+            return
+
+        positions = particles.positions
+        sizes = particles.sizes
+        if colors is None:
+            colors = np.tile(particles.base_color, (len(positions), 1))
+
+        if len(brightness) != len(positions):
+            raise ValueError(
+                f"brightness length {len(brightness)} != positions length "
+                f"{len(positions)}"
+            )
+        if len(colors) != len(positions):
+            raise ValueError(
+                f"colors length {len(colors)} != positions length {len(positions)}"
+            )
+
+        h, w = image.shape[:2]
+        for i in range(len(positions)):
+            px, py = positions[i]
+            if px < 0 or py < 0 or px >= w or py >= h:
+                continue
+            particle_color = (colors[i] * brightness[i]).astype(np.float32)
+            particle_color = np.clip(particle_color, 0, 255)
+            radius = max(1, int(sizes[i]))
+            cv2.circle(
+                img,
+                (int(px), int(py)),
+                radius,
+                particle_color.tolist(),
+                -1,
+                cv2.LINE_AA,
+            )
+
+        # Convert back to RGB for unified saving
+        rgb_overlay = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        self._save_image(rgb_overlay, session_id, "glitter_particles")
+
+    def save_glitter_sparkle(
+        self,
+        sparkle_overlay: np.ndarray,
+        session_id: str,
+    ) -> None:
+        """
+        Save the raw glitter sparkle overlay as a standalone image.
+
+        The sparkle overlay is the output of ``render_sparkle_overlay`` before
+        additive compositing and bloom. Saving it standalone allows inspection
+        of the per-particle sparkle shapes, colours, and brightness.
+
+        Args:
+            sparkle_overlay: (H, W, 3) float32 BGR sparkle overlay.
+            session_id: Session identifier for filename.
+        """
+        session_id = _sanitize_session_id(session_id)
+        overlay_u8 = np.clip(sparkle_overlay, 0, 255).astype(np.uint8)
+        path = os.path.join(self.debug_dir, f"{session_id}_glitter_sparkle.png")
+        cv2.imwrite(path, overlay_u8)
+        logger.debug(f"Saved glitter sparkle overlay: {path}")
+
+    def save_glitter_before_after(
+        self,
+        before: np.ndarray,
+        after: np.ndarray,
+        session_id: str,
+    ) -> None:
+        """
+        Save before/after comparison of the glitter pass.
+
+        Saves the image before glitter, after glitter, and a difference heatmap
+        highlighting where the sparkles and bloom were added.
+
+        Args:
+            before: RGB image before glitter (H, W, 3).
+            after: RGB image after glitter (H, W, 3).
+            session_id: Session identifier for filename.
+        """
+        # Save before and after
+        self._save_image(before, session_id, "glitter_before")
+        self._save_image(after, session_id, "glitter_after")
+
+        # Save difference heatmap
+        diff = cv2.absdiff(
+            cv2.cvtColor(before, cv2.COLOR_RGB2BGR),
+            cv2.cvtColor(after, cv2.COLOR_RGB2BGR),
+        )
+        diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+        heatmap = cv2.applyColorMap(diff_gray, cv2.COLORMAP_HOT)
+        session_id = _sanitize_session_id(session_id)
+        path = os.path.join(self.debug_dir, f"{session_id}_glitter_diff.png")
+        cv2.imwrite(path, heatmap)
+        logger.debug(f"Saved glitter diff heatmap: {path}")
 
     def _save_image(
         self,

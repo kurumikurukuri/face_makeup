@@ -13,7 +13,7 @@ from face_makeup.constants import (
 )
 from face_makeup.core.eyeliner_corrector import EyelinerCorrector
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.passes.blend_utils import standard_blend
+from face_makeup.core.blend.blend_utils import standard_blend
 from face_makeup.core.types import EyeLinerParams
 
 

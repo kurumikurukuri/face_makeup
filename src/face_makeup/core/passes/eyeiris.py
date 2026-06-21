@@ -13,7 +13,7 @@ from face_makeup.constants import (
     RIGHT_EYE_IDX,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.passes.blend_utils import apply_hue_shift_blend, standard_blend
+from face_makeup.core.blend.blend_utils import apply_hue_shift_blend, standard_blend
 from face_makeup.core.types import EyeIrisParams
 
 

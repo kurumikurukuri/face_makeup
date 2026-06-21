@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from face_makeup.core.passes.blend_utils import (
+from face_makeup.core.blend.blend_utils import (
     apply_hue_shift_blend,
     apply_target_color,
     soften_mask,

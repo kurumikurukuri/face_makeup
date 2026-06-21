@@ -504,3 +504,168 @@ class TestEyeLinerParamsValidation:
             thickness=3
         )
         assert params.thickness == 3
+
+
+class TestGlitterValidation:
+    """Tests for glitter parameter validation on eyelid() and eyelid_edge()."""
+
+    def test_eyelid_glitter_too_high(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.eyelid(color=(180, 130, 150), glitter=1.5)
+
+    def test_eyelid_glitter_negative(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.eyelid(color=(180, 130, 150), glitter=-0.1)
+
+    def test_eyelid_glitter_string(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.eyelid(color=(180, 130, 150), glitter="0.5")
+
+    def test_eyelid_edge_glitter_too_high(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.eyelid_edge(color=(245, 41, 41), glitter=1.5)
+
+    def test_eyelid_edge_glitter_negative(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.eyelid_edge(color=(245, 41, 41), glitter=-0.1)
+
+    def test_eyelid_edge_glitter_string(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.eyelid_edge(color=(245, 41, 41), glitter="0.5")
+
+    def test_valid_glitter_boundary_zero(self, face):
+        face.eyelid(color=(180, 130, 150), glitter=0.0, side='left')
+        assert len(face.makeup_passes) == 1
+
+    def test_valid_glitter_boundary_one(self, face):
+        face.eyelid(color=(180, 130, 150), glitter=1.0, side='left')
+        assert len(face.makeup_passes) == 1
+
+    def test_valid_glitter_integer(self, face):
+        face.eyelid(color=(180, 130, 150), glitter=0, side='left')
+        assert len(face.makeup_passes) == 1
+
+    def test_glitter_default_is_zero(self, face):
+        """eyelid() with no glitter arg should default to 0.0."""
+        face.eyelid(color=(180, 130, 150))
+        params = face.makeup_passes[0].params
+        assert params.glitter == 0.0
+
+    def test_glitter_propagates_to_params(self, face):
+        """Verify glitter value reaches EyeShadowParams."""
+        face.eyelid(color=(180, 130, 150), glitter=0.7)
+        params = face.makeup_passes[0].params
+        assert params.glitter == 0.7
+
+    def test_eyelid_edge_glitter_propagates_to_params(self, face):
+        """Verify glitter value reaches EyeShadowParams via eyelid_edge."""
+        face.eyelid_edge(color=(245, 41, 41), glitter=0.5)
+        params = face.makeup_passes[0].params
+        assert params.glitter == 0.5
+
+
+class TestEyeShadowParamsGlitterValidation:
+    """Tests for EyeShadowParams glitter validation at the dataclass level."""
+
+    def test_glitter_too_high_via_dataclass(self):
+        with pytest.raises(ValueError, match="glitter must be"):
+            EyeShadowParams(
+                color_params=ColorParams(target_rgb=(180, 130, 150)),
+                opacity=0.3,
+                glitter=1.5,
+            )
+
+    def test_glitter_negative_via_dataclass(self):
+        with pytest.raises(ValueError, match="glitter must be"):
+            EyeShadowParams(
+                color_params=ColorParams(target_rgb=(180, 130, 150)),
+                opacity=0.3,
+                glitter=-0.1,
+            )
+
+    def test_glitter_default_is_zero_via_dataclass(self):
+        params = EyeShadowParams(
+            color_params=ColorParams(target_rgb=(180, 130, 150)),
+            opacity=0.3,
+        )
+        assert params.glitter == 0.0
+
+
+class TestApplyGlitter:
+    """Tests for apply_glitter() function in blend_utils."""
+
+    @pytest.fixture
+    def glitter_image(self):
+        """Synthetic image for glitter testing — solid mid-tone."""
+        return np.full((100, 100, 3), 128, dtype=np.uint8)
+
+    @pytest.fixture
+    def glitter_mask(self):
+        """Float32 mask covering the centre quarter."""
+        mask = np.zeros((100, 100), dtype=np.float32)
+        mask[25:75, 25:75] = 1.0
+        return mask
+
+    def test_glitter_zero_returns_unchanged(self, glitter_image, glitter_mask):
+        """glitter_intensity=0 returns the input image unchanged (same array content)."""
+        from face_makeup.core.blend.blend_utils import apply_glitter
+
+        result = apply_glitter(
+            glitter_image, glitter_mask,
+            glitter_intensity=0.0,
+            rng=np.random.default_rng(42),
+        )
+        assert np.array_equal(result, glitter_image)
+
+    def test_glitter_positive_returns_different(self, glitter_image, glitter_mask):
+        """glitter_intensity>0 produces a different image."""
+        from face_makeup.core.blend.blend_utils import apply_glitter
+
+        result = apply_glitter(
+            glitter_image, glitter_mask,
+            glitter_intensity=0.5,
+            rng=np.random.default_rng(42),
+        )
+        assert not np.array_equal(result, glitter_image)
+
+    def test_glitter_positive_same_shape(self, glitter_image, glitter_mask):
+        """glitter output has the same shape as input."""
+        from face_makeup.core.blend.blend_utils import apply_glitter
+
+        result = apply_glitter(
+            glitter_image, glitter_mask,
+            glitter_intensity=0.8,
+            rng=np.random.default_rng(42),
+        )
+        assert result.shape == glitter_image.shape
+        assert result.dtype == glitter_image.dtype
+
+    def test_glitter_positive_deterministic(self, glitter_image, glitter_mask):
+        """Same seed produces identical output."""
+        from face_makeup.core.blend.blend_utils import apply_glitter
+
+        rng1 = np.random.default_rng(42)
+        rng2 = np.random.default_rng(42)
+        result1 = apply_glitter(
+            glitter_image, glitter_mask,
+            glitter_intensity=0.5,
+            rng=rng1,
+        )
+        result2 = apply_glitter(
+            glitter_image, glitter_mask,
+            glitter_intensity=0.5,
+            rng=rng2,
+        )
+        assert np.array_equal(result1, result2)
+
+    def test_glitter_empty_mask_returns_unchanged(self, glitter_image):
+        """Empty mask returns image unchanged even with positive intensity."""
+        from face_makeup.core.blend.blend_utils import apply_glitter
+
+        empty_mask = np.zeros((100, 100), dtype=np.float32)
+        result = apply_glitter(
+            glitter_image, empty_mask,
+            glitter_intensity=0.5,
+            rng=np.random.default_rng(42),
+        )
+        assert np.array_equal(result, glitter_image)

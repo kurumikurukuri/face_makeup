@@ -10,7 +10,7 @@ import numpy as np
 
 from face_makeup.constants import LIPS_INDICES
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.passes.blend_utils import standard_blend
+from face_makeup.core.blend.blend_utils import standard_blend
 from face_makeup.core.types import LipsParams
 
 
