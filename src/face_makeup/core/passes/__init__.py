@@ -8,6 +8,11 @@ from face_makeup.core.passes.blend_utils import (
 from face_makeup.core.passes.eyeliner import EyelinerBlendStrategy, EyelinerMaskStrategy, EyelinerPass
 from face_makeup.core.passes.eyeiris import EyeIrisBlendStrategy, EyeIrisMaskStrategy, EyeIrisPass
 from face_makeup.core.passes.eyeshadow import EyeShadowBlendStrategy, EyeShadowMaskStrategy, EyeShadowPass
+from face_makeup.core.passes.foundation import (
+    FoundationBlendStrategy,
+    FoundationMaskStrategy,
+    FoundationPass,
+)
 from face_makeup.core.passes.lips import LipBlendStrategy, LipMaskStrategy, LipsPass
 
 __all__ = [
@@ -25,6 +30,9 @@ __all__ = [
     "EyeShadowBlendStrategy",
     "EyeShadowMaskStrategy",
     "EyeShadowPass",
+    "FoundationBlendStrategy",
+    "FoundationMaskStrategy",
+    "FoundationPass",
     "LipBlendStrategy",
     "LipMaskStrategy",
     "LipsPass",

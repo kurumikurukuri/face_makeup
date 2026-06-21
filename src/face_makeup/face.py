@@ -13,6 +13,7 @@ from face_makeup.core.passes.cheek import CheekPass
 from face_makeup.core.passes.eyeliner import EyelinerPass
 from face_makeup.core.passes.eyeiris import EyeIrisPass
 from face_makeup.core.passes.eyeshadow import EyeShadowPass
+from face_makeup.core.passes.foundation import FoundationPass
 from face_makeup.core.passes.lips import LipsPass
 from face_makeup.core.pipeline import MakeupPass
 from face_makeup.core.types import (
@@ -401,6 +402,44 @@ class Face:
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added eye iris layer (side={side})")
         return self
+
+    def foundation(
+        self,
+        *,
+        color: Tuple[int, int, int],
+        opacity: float = 0.3,
+        blur_strength: float = 0.5
+    ) -> Face:
+        """
+        Add foundation (full-face skin tone) makeup.
+
+        Applies a face-oval mask with alpha blending for natural-looking
+        skin tone adjustment. The mask excludes eye and lip regions.
+
+        Args:
+            color: RGB color tuple matching the desired skin tone.
+            opacity: Makeup strength 0.0-1.0.
+            blur_strength: Edge attenuation factor (0.0-1.0).
+
+        Returns:
+            Self for chaining.
+
+        Examples:
+            >>> face.foundation(color=(255, 220, 200), opacity=0.3)
+        """
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = PartParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            blur_strength=blur_strength
+        )
+        self._makeup_passes.append(FoundationPass(params))
+        self._notify_change()
+        logger.debug(f"Face {self._face_id}: Added foundation")
+        return self
+
     def clear(self) -> Face:
         """
         Clear all makeup layers.

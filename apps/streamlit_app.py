@@ -159,6 +159,9 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 _SESSION_DEFAULTS = {
+    'foundation_enabled': False,
+    'foundation_color': "#FFDCC8",
+    'foundation_opacity': 0.3,
     'lips_enabled': False,
     'lips_color': "#FF4D4D",
     'lips_opacity': 0.5,
@@ -204,10 +207,36 @@ with st.sidebar:
     # Usage instructions
         st.markdown("""
         1. 顔写真をアップロード
-        2. 各パラメータを調整（💋リップ、🌸チーク、👁️アイシャドウ、✏️アイライナー、👁️カラコン）
+        2. 各パラメータを調整（🎨ファンデ、💋リップ、🌸チーク、👁️アイシャドウ、✏️アイライナー、👁️カラコン）
         3. 「メイクを適用」ボタンをクリック
         4. 結果を確認・ダウンロード
         """)
+
+    # Foundation settings
+    with st.expander("🎨 ファンデーション", expanded=False):
+        foundation_enabled = st.checkbox(
+            "ファンデーションを有効化",
+            value=st.session_state.foundation_enabled,
+            key="foundation_enabled"
+        )
+
+        if foundation_enabled:
+            foundation_color = st.color_picker(
+                "ファンデーションカラー",
+                value=st.session_state.foundation_color,
+                key="foundation_color"
+            )
+            st.caption(f"RGB: {hex_to_rgb(foundation_color)}")
+
+            st.slider(
+                "不透明度",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.foundation_opacity,
+                step=0.05,
+                key="foundation_opacity",
+                help="メイクの強さ（0: 透明、1: 最大）"
+            )
 
     # Lips settings
     with st.expander("💋 リップ", expanded=False):
@@ -549,6 +578,7 @@ if image_source is not None:
 
                     # Check if at least one makeup option is enabled
                     any_enabled = (
+                        st.session_state.foundation_enabled or
                         st.session_state.lips_enabled or
                         st.session_state.cheek_enabled or
                         st.session_state.eyelid_enabled or
@@ -564,6 +594,14 @@ if image_source is not None:
                     else:
                         # Get the first face
                         face = ctx.faces[0]
+
+                        # Apply foundation (base layer, priority 0)
+                        if st.session_state.foundation_enabled:
+                            face.foundation(
+                                color=hex_to_rgb(st.session_state.foundation_color),
+                                opacity=st.session_state.foundation_opacity,
+                                blur_strength=0.5
+                            )
 
                         # Apply lips
                         if st.session_state.lips_enabled:
@@ -670,6 +708,11 @@ if image_source is not None:
 
                 # Current settings info
                 with st.expander("現在の設定"):
+                    if st.session_state.foundation_enabled:
+                        st.write("**ファンデーション**")
+                        st.write(f"- カラー: {st.session_state.foundation_color} {hex_to_rgb(st.session_state.foundation_color)}")
+                        st.write(f"- 不透明度: {st.session_state.foundation_opacity}")
+
                     if st.session_state.lips_enabled:
                         st.write("**リップ**")
                         st.write(f"- カラー: {st.session_state.lips_color} {hex_to_rgb(st.session_state.lips_color)}")
@@ -719,6 +762,9 @@ else:
 
         with col1:
             st.markdown("""
+            **ファンデーション**
+            - カラー / 不透明度
+
             **リップ**
             - カラー / 不透明度
 

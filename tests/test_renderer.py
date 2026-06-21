@@ -6,6 +6,7 @@ import numpy as np
 
 from face_makeup.face import Face
 from face_makeup.core.pipeline import MakeupPass, MaskStrategy, BlendStrategy
+from face_makeup.core.passes.foundation import FoundationPass
 from face_makeup.core.types import (
     FaceLandmarks,
     ColorParams,
@@ -147,6 +148,22 @@ class TestTwoPhasePipeline:
         )
         face = _make_face(makeup_passes=[p])
         image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+        assert result.shape == (100, 100, 3)
+
+    def test_foundation_with_exclusion_sources(self, renderer):
+        """Foundation with eyelid and lip exclusion sources should render correctly."""
+        foundation = FoundationPass(
+            params=PartParams(
+                color_params=ColorParams(target_rgb=(200, 200, 200)),
+                opacity=0.3,
+            ),
+        )
+        eyelid_left = _make_pass("eyelid_left", priority=25)
+        eyelid_right = _make_pass("eyelid_right", priority=26)
+        lips = _make_pass("lips", priority=20)
+        face = _make_face(makeup_passes=[foundation, eyelid_left, eyelid_right, lips])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
         result = renderer.render_face(image, face)
         assert result.shape == (100, 100, 3)
 
