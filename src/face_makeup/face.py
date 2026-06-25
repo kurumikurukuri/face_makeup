@@ -15,6 +15,7 @@ from face_makeup.core.passes.eyeiris import EyeIrisPass
 from face_makeup.core.passes.eyeshadow import EyeShadowPass
 from face_makeup.core.passes.foundation import FoundationPass
 from face_makeup.core.passes.lips import LipsPass
+from face_makeup.core.passes.tearbag import TearBagHighlightPass, TearBagShadowPass
 from face_makeup.core.pipeline import MakeupPass
 from face_makeup.core.types import (
     FaceBBox,
@@ -474,6 +475,96 @@ class Face:
         self._notify_change()
         logger.debug(f"Face {self._face_id}: Added eye iris layer (side={side})")
         return self
+
+    def tear_bag_highlight(
+        self,
+        *,
+        side: Literal['left', 'right', 'both'] = 'both',
+        color: Tuple[int, int, int] = (255, 255, 255),
+        opacity: float = 0.3,
+        blur_strength: float = 0.5
+    ) -> Face:
+        """
+        Add tear bag (涙袋) highlight — filled polygon on the lower-eyelid bulge.
+
+        Brightens the tear bag area via a screen blend, so a white or pearl
+        highlight reads correctly (lightens rather than darkens).
+
+        Args:
+            side: 'left', 'right', or 'both'.
+            color: RGB color tuple, e.g. (255, 255, 255) for white.
+            opacity: Highlight strength 0.0-1.0.
+            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
+                this fraction of opacity; center stays 1.0.
+
+        Returns:
+            Self for chaining.
+
+        Examples:
+            >>> face.tear_bag_highlight(color=(255, 255, 255), opacity=0.3)
+        """
+        self._validate_side(side)
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = PartParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            blur_strength=blur_strength
+        )
+        if side in ('left', 'both'):
+            self._makeup_passes.append(TearBagHighlightPass(params, 'tear_bag_highlight_left'))
+        if side in ('right', 'both'):
+            self._makeup_passes.append(TearBagHighlightPass(params, 'tear_bag_highlight_right'))
+        self._notify_change()
+        logger.debug(f"Face {self._face_id}: Added tear bag highlight (side={side})")
+        return self
+
+    def tear_bag_shadow(
+        self,
+        *,
+        side: Literal['left', 'right', 'both'] = 'both',
+        color: Tuple[int, int, int] = (150, 110, 90),
+        opacity: float = 0.4,
+        thickness: int = 2,
+        blur_strength: float = 0.5
+    ) -> Face:
+        """
+        Add tear bag (涙袋) shadow line — open polyline tracing the ridge below
+        the tear bag.
+
+        Args:
+            side: 'left', 'right', or 'both'.
+            color: RGB color tuple, e.g. (150, 110, 90) for a soft brown.
+            opacity: Shadow strength 0.0-1.0.
+            thickness: Line thickness 1-10.
+            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
+                this fraction of opacity; center stays 1.0.
+
+        Returns:
+            Self for chaining.
+
+        Examples:
+            >>> face.tear_bag_shadow(color=(150, 110, 90), opacity=0.4, thickness=2)
+        """
+        self._validate_side(side)
+        self._validate_color(color)
+        self._validate_opacity(opacity)
+        self._validate_blur_strength(blur_strength)
+        params = EyeLinerParams(
+            color_params=ColorParams(target_rgb=color),
+            opacity=opacity,
+            thickness=thickness,
+            blur_strength=blur_strength
+        )
+        if side in ('left', 'both'):
+            self._makeup_passes.append(TearBagShadowPass(params, 'tear_bag_shadow_left'))
+        if side in ('right', 'both'):
+            self._makeup_passes.append(TearBagShadowPass(params, 'tear_bag_shadow_right'))
+        self._notify_change()
+        logger.debug(f"Face {self._face_id}: Added tear bag shadow (side={side})")
+        return self
+
 
     def foundation(
         self,

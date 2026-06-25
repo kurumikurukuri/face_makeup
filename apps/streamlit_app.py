@@ -195,6 +195,12 @@ _SESSION_DEFAULTS = {
     'eyeliner_enabled': False,
     'eyeliner_color': "#000000",
     'eyeliner_thickness': 2,
+    'tear_bag_enabled': False,
+    'tear_bag_highlight_color': "#FFF6E6",
+    'tear_bag_highlight_opacity': 0.3,
+    'tear_bag_shadow_color': "#8C6E5A",
+    'tear_bag_shadow_opacity': 0.4,
+    'tear_bag_shadow_thickness': 2,
     'eyeiris_enabled': False,
     'eyeiris_color': "#6496FF",
     'eyeiris_opacity': 0.5,
@@ -470,6 +476,61 @@ with st.sidebar:
                 help="アイライナーの線の太さ"
             )
 
+    # Tear bag settings
+    with st.expander("👁️ 涙袋", expanded=False):
+        tear_bag_enabled = st.checkbox(
+            "涙袋を有効化",
+            value=st.session_state.tear_bag_enabled,
+            key="tear_bag_enabled"
+        )
+
+        if tear_bag_enabled:
+            st.markdown("**ハイライト**")
+            tear_bag_highlight_color = st.color_picker(
+                "ハイライトカラー",
+                value=st.session_state.tear_bag_highlight_color,
+                key="tear_bag_highlight_color"
+            )
+            st.caption(f"RGB: {hex_to_rgb(tear_bag_highlight_color)}")
+
+            st.slider(
+                "ハイライト不透明度",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.tear_bag_highlight_opacity,
+                step=0.05,
+                key="tear_bag_highlight_opacity",
+                help="涙袋の明るさ（0: なし、1: 最大）"
+            )
+
+            st.markdown("**シャドウ**")
+            tear_bag_shadow_color = st.color_picker(
+                "シャドウカラー",
+                value=st.session_state.tear_bag_shadow_color,
+                key="tear_bag_shadow_color"
+            )
+            st.caption(f"RGB: {hex_to_rgb(tear_bag_shadow_color)}")
+
+            st.slider(
+                "シャドウ不透明度",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.tear_bag_shadow_opacity,
+                step=0.05,
+                key="tear_bag_shadow_opacity",
+                help="シャドウラインの濃さ（0: なし、1: 最大）"
+            )
+
+            st.slider(
+                "シャドウ太さ",
+                min_value=1,
+                max_value=10,
+                value=st.session_state.tear_bag_shadow_thickness,
+                step=1,
+                key="tear_bag_shadow_thickness",
+                help="シャドウラインの太さ"
+            )
+
     # Eye iris (color contact) settings
     with st.expander("👁️ カラーコンタクト", expanded=False):
         eyeiris_enabled = st.checkbox(
@@ -631,6 +692,7 @@ if image_source is not None:
                         st.session_state.eyelid_enabled or
                         st.session_state.eyelid_edge_enabled or
                         st.session_state.eyeliner_enabled or
+                        st.session_state.tear_bag_enabled or
                         st.session_state.eyeiris_enabled
                     )
 
@@ -697,6 +759,22 @@ if image_source is not None:
                                 color=hex_to_rgb(st.session_state.eyeliner_color),
                                 opacity=0.8,
                                 thickness=st.session_state.eyeliner_thickness,
+                                blur_strength=0.5,
+                                side='both'
+                            )
+
+                        # Apply tear bag
+                        if st.session_state.tear_bag_enabled:
+                            face.tear_bag_highlight(
+                                color=hex_to_rgb(st.session_state.tear_bag_highlight_color),
+                                opacity=st.session_state.tear_bag_highlight_opacity,
+                                blur_strength=0.5,
+                                side='both'
+                            )
+                            face.tear_bag_shadow(
+                                color=hex_to_rgb(st.session_state.tear_bag_shadow_color),
+                                opacity=st.session_state.tear_bag_shadow_opacity,
+                                thickness=st.session_state.tear_bag_shadow_thickness,
                                 blur_strength=0.5,
                                 side='both'
                             )
@@ -795,6 +873,12 @@ if image_source is not None:
                         st.write("**アイライナー**")
                         st.write(f"- カラー: {st.session_state.eyeliner_color} {hex_to_rgb(st.session_state.eyeliner_color)}")
                         st.write(f"- 太さ: {st.session_state.eyeliner_thickness}")
+
+                    if st.session_state.tear_bag_enabled:
+                        st.write("**涙袋**")
+                        st.write(f"- ハイライト: {st.session_state.tear_bag_highlight_color} {hex_to_rgb(st.session_state.tear_bag_highlight_color)}")
+                        st.write(f"- シャドウ: {st.session_state.tear_bag_shadow_color} {hex_to_rgb(st.session_state.tear_bag_shadow_color)}")
+                        st.write(f"- シャドウ太さ: {st.session_state.tear_bag_shadow_thickness}")
 
                     if st.session_state.eyeiris_enabled:
                         st.write("**カラーコンタクト**")

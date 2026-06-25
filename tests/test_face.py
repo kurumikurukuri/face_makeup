@@ -746,3 +746,122 @@ class TestEyelidZones:
 
         covered = (full & union).sum() / full.sum()
         assert covered > 0.9, f"zones cover only {covered:.1%} of full eyelid"
+
+
+class TestTearBag:
+    """Tests for tear_bag_highlight() and tear_bag_shadow()."""
+
+    def test_highlight_both_sides(self, face):
+        """tear_bag_highlight(side='both') appends left + right highlight passes."""
+        face.tear_bag_highlight(color=(255, 255, 255), side='both')
+        assert [p.pass_type for p in face.makeup_passes] == [
+            "tear_bag_highlight_left", "tear_bag_highlight_right"
+        ]
+
+    def test_shadow_both_sides(self, face):
+        """tear_bag_shadow(side='both') appends left + right shadow passes."""
+        face.tear_bag_shadow(color=(150, 110, 90), side='both')
+        assert [p.pass_type for p in face.makeup_passes] == [
+            "tear_bag_shadow_left", "tear_bag_shadow_right"
+        ]
+
+    def test_highlight_single_side(self, face):
+        """side='left' adds exactly one highlight pass."""
+        face.tear_bag_highlight(side='left')
+        assert [p.pass_type for p in face.makeup_passes] == ["tear_bag_highlight_left"]
+
+    def test_shadow_single_side(self, face):
+        """side='right' adds exactly one shadow pass."""
+        face.tear_bag_shadow(side='right')
+        assert [p.pass_type for p in face.makeup_passes] == ["tear_bag_shadow_right"]
+
+    def test_highlight_invalid_side(self, face):
+        with pytest.raises(ValueError, match="side must be one of"):
+            face.tear_bag_highlight(side='middle')
+
+    def test_shadow_invalid_side(self, face):
+        with pytest.raises(ValueError, match="side must be one of"):
+            face.tear_bag_shadow(side='both_sides')
+
+    def test_invalid_color(self, face):
+        with pytest.raises(ValueError, match="Color values must be integers"):
+            face.tear_bag_highlight(color=(300, 0, 0))
+        with pytest.raises(ValueError, match="Color values must be integers"):
+            face.tear_bag_shadow(color=(0, -1, 0))
+
+    def test_invalid_opacity(self, face):
+        with pytest.raises(ValueError, match="Opacity must be"):
+            face.tear_bag_highlight(opacity=1.5)
+        with pytest.raises(ValueError, match="Opacity must be"):
+            face.tear_bag_shadow(opacity=-0.1)
+
+    def test_part_names_resolve_in_indices_map(self):
+        """Every tear bag part name exists in the tear bag _INDICES_MAP."""
+        from face_makeup.core.passes.tearbag import _INDICES_MAP
+
+        for element in ("highlight", "shadow"):
+            for side in ("left", "right"):
+                assert f"tear_bag_{element}_{side}" in _INDICES_MAP
+
+    def test_shadow_priority_above_highlight(self, face):
+        """Shadow renders above the highlight (higher priority value)."""
+        face.tear_bag_highlight()
+        face.tear_bag_shadow()
+        by_type = {p.pass_type: p.priority for p in face.makeup_passes}
+        assert by_type["tear_bag_shadow_left"] > by_type["tear_bag_highlight_left"]
+
+    def test_landmarks_mirror_around_face_center(self, face):
+        """Left/right tear-bag points are mirror-symmetric about the face centerline.
+
+        Center is derived from a known-good mirror pair (eye corners 33/263),
+        so this is independent of where the face sits in the image.
+        """
+        from face_makeup import constants as C
+
+        pts = face.landmarks.points
+        center_x = (pts[33][0] + pts[263][0]) / 2
+        for li, ri in zip(C.TEAR_BAG_SHADOW_LEFT_INDICES, C.TEAR_BAG_SHADOW_RIGHT_INDICES):
+            lx, ly = pts[li]
+            rx, ry = pts[ri]
+            assert abs((lx + rx) / 2 - center_x) < 0.03, f"x-mirror off for {li}/{ri}"
+            assert abs(ly - ry) < 0.03, f"y-mismatch for {li}/{ri}"
+
+    def test_masks_non_empty(self, face, test_image):
+        """Highlight (fillPoly) and shadow (polylines) masks are non-empty."""
+        from face_makeup.core.passes.tearbag import (
+            TearBagHighlightMaskStrategy,
+            TearBagShadowMaskStrategy,
+        )
+        from face_makeup import constants as C
+
+        coords = face.landmarks.to_image_coords(*test_image.shape[:2])
+        shape = test_image.shape[:2]
+        for side in ("LEFT", "RIGHT"):
+            highlight_idx = getattr(C, f"TEAR_BAG_HIGHLIGHT_{side}_INDICES")
+            shadow_idx = getattr(C, f"TEAR_BAG_SHADOW_{side}_INDICES")
+            highlight = TearBagHighlightMaskStrategy(list(highlight_idx)).generate(coords, shape)
+            shadow = TearBagShadowMaskStrategy(list(shadow_idx)).generate(coords, shape)
+            assert highlight.sum() > 0, f"highlight mask empty for {side}"
+            assert shadow.sum() > 0, f"shadow mask empty for {side}"
+
+    def test_highlight_blend_lightens(self, face, test_image):
+        """Screen blend raises mean brightness within the masked region."""
+        from face_makeup.core.passes.tearbag import (
+            TearBagHighlightBlendStrategy,
+            TearBagHighlightMaskStrategy,
+        )
+        from face_makeup import constants as C
+        from face_makeup.core.types import ColorParams, PartParams
+
+        coords = face.landmarks.to_image_coords(*test_image.shape[:2])
+        shape = test_image.shape[:2]
+        mask = TearBagHighlightMaskStrategy(list(C.TEAR_BAG_HIGHLIGHT_LEFT_INDICES)).generate(coords, shape)
+        params = PartParams(
+            color_params=ColorParams(target_rgb=(255, 255, 255)),
+            opacity=1.0, blur_strength=0.0
+        )
+        blended = TearBagHighlightBlendStrategy().apply(test_image, mask, params)
+        region = mask > 0
+        assert region.sum() > 500, "highlight mask must cover a real area"
+        assert blended[region].mean() > test_image[region].mean()
+
