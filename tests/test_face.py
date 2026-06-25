@@ -669,3 +669,80 @@ class TestApplyGlitter:
             rng=np.random.default_rng(42),
         )
         assert np.array_equal(result, glitter_image)
+
+
+class TestEyelidZones:
+    """Tests for the `zone` argument on eyelid() and eyelid_edge()."""
+
+    @pytest.mark.parametrize("zone", ["outer", "center", "inner"])
+    def test_eyelid_zone_both_sides(self, face, zone):
+        """eyelid(zone=...) builds zone-qualified part names for both sides."""
+        face.eyelid(color=(180, 130, 150), zone=zone, side='both')
+        pass_types = [p.pass_type for p in face.makeup_passes]
+        assert pass_types == [f"eyelid_{zone}_left", f"eyelid_{zone}_right"]
+
+    @pytest.mark.parametrize("zone", ["outer", "center", "inner"])
+    def test_eyelid_edge_zone_both_sides(self, face, zone):
+        """eyelid_edge(zone=...) builds edge-band zone part names for both sides."""
+        face.eyelid_edge(color=(245, 41, 41), zone=zone, side='both')
+        pass_types = [p.pass_type for p in face.makeup_passes]
+        assert pass_types == [f"eyelid_edge_{zone}_left", f"eyelid_edge_{zone}_right"]
+
+    def test_eyelid_default_zone_is_full(self, face):
+        """Default zone='full' preserves backward-compatible part names."""
+        face.eyelid(color=(180, 130, 150), side='both')
+        pass_types = [p.pass_type for p in face.makeup_passes]
+        assert pass_types == ["eyelid_left", "eyelid_right"]
+
+    def test_eyelid_edge_default_zone_is_full(self, face):
+        """Default zone='full' on edge band preserves backward-compatible names."""
+        face.eyelid_edge(color=(245, 41, 41), side='both')
+        pass_types = [p.pass_type for p in face.makeup_passes]
+        assert pass_types == ["eyelid_edge_left", "eyelid_edge_right"]
+
+    def test_eyelid_zone_single_side(self, face):
+        """zone with side='left' adds exactly one zone pass."""
+        face.eyelid(color=(180, 130, 150), zone='outer', side='left')
+        assert [p.pass_type for p in face.makeup_passes] == ["eyelid_outer_left"]
+
+    def test_eyelid_invalid_zone(self, face):
+        with pytest.raises(ValueError, match="zone must be one of"):
+            face.eyelid(color=(180, 130, 150), zone='top')
+
+    def test_eyelid_edge_invalid_zone(self, face):
+        with pytest.raises(ValueError, match="zone must be one of"):
+            face.eyelid_edge(color=(245, 41, 41), zone='bottom')
+
+    def test_zone_part_names_resolve_in_indices_map(self):
+        """Every zone part name produced by the API exists in _INDICES_MAP."""
+        from face_makeup.core.passes.eyeshadow import _INDICES_MAP
+
+        for base in ("eyelid", "eyelid_edge"):
+            for zone in ("outer", "center", "inner"):
+                for side in ("left", "right"):
+                    assert Face._eyelid_part(base, zone, side) in _INDICES_MAP
+
+    @pytest.mark.parametrize("side", ["left", "right"])
+    def test_overall_zones_tile_full_eyelid(self, face, test_image, side):
+        """The three overall zones together cover (tile) the full eyelid mask."""
+        from face_makeup.core.passes.eyeshadow import EyeShadowMaskStrategy
+        from face_makeup import constants as C
+
+        coords = face.landmarks.points
+        shape = test_image.shape[:2]
+        full_idx = getattr(C, f"EYELID_{side.upper()}_INDICES")
+        zone_idx = [
+            getattr(C, f"EYELID_OUTER_{side.upper()}_INDICES"),
+            getattr(C, f"EYELID_CENTER_{side.upper()}_INDICES"),
+            getattr(C, f"EYELID_INNER_{side.upper()}_INDICES"),
+        ]
+
+        full = EyeShadowMaskStrategy(full_idx).generate(coords, shape) > 0
+        union = np.zeros(shape, dtype=bool)
+        for idx in zone_idx:
+            zone_mask = EyeShadowMaskStrategy(idx).generate(coords, shape) > 0
+            assert zone_mask.sum() > 0, "zone mask must be non-empty"
+            union |= zone_mask
+
+        covered = (full & union).sum() / full.sum()
+        assert covered > 0.9, f"zones cover only {covered:.1%} of full eyelid"

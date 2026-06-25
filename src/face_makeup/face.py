@@ -92,6 +92,40 @@ class Face:
                 f"side must be one of {Face._VALID_SIDES}, got '{side}'"
             )
 
+    _VALID_ZONES = ('full', 'outer', 'center', 'inner')
+
+    @staticmethod
+    def _validate_zone(zone: str) -> None:
+        """
+        Validate eyelid zone parameter.
+
+        Args:
+            zone: Must be 'full', 'outer', 'center', or 'inner'.
+
+        Raises:
+            ValueError: If zone is not a valid value.
+        """
+        if zone not in Face._VALID_ZONES:
+            raise ValueError(
+                f"zone must be one of {Face._VALID_ZONES}, got '{zone}'"
+            )
+
+    @staticmethod
+    def _eyelid_part(base: str, zone: str, side: str) -> str:
+        """
+        Build an eyeshadow part name from band base, zone, and side.
+
+        Args:
+            base: 'eyelid' (overall band) or 'eyelid_edge' (edge band).
+            zone: 'full', 'outer', 'center', or 'inner'.
+            side: 'left' or 'right'.
+
+        Returns:
+            Part name key, e.g. 'eyelid_left' (zone='full') or
+            'eyelid_edge_outer_right'.
+        """
+        return f"{base}_{side}" if zone == 'full' else f"{base}_{zone}_{side}"
+
     @staticmethod
     def _validate_blur_strength(blur_strength: float) -> None:
         """
@@ -248,16 +282,20 @@ class Face:
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
+        zone: Literal['full', 'outer', 'center', 'inner'] = 'full',
         color: Tuple[int, int, int],
         opacity: float = 0.3,
         blur_strength: float = 0.5,
         glitter: float = 0.0
     ) -> Face:
         """
-        Add eye shadow makeup.
+        Add eye shadow makeup (overall band: crease to lash line).
 
         Args:
             side: 'left', 'right', or 'both'.
+            zone: Horizontal region of the eyelid to paint.
+                'full' (default) = whole width (backward compatible),
+                'outer' = 目尻側, 'center' = 中心部, 'inner' = 目頭側.
             color: RGB color tuple, e.g. (180, 130, 150).
             opacity: Makeup strength 0.0-1.0.
             blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
@@ -270,9 +308,11 @@ class Face:
 
         Examples:
             >>> face.eyelid(color=(180, 130, 150), opacity=0.3)
+            >>> face.eyelid(color=(180, 130, 150), zone='outer')
             >>> face.eyelid(color=(180, 130, 150), glitter=0.5)
         """
         self._validate_side(side)
+        self._validate_zone(zone)
         self._validate_color(color)
         self._validate_opacity(opacity)
         self._validate_blur_strength(blur_strength)
@@ -284,27 +324,31 @@ class Face:
             glitter=glitter
         )
         if side in ('left', 'both'):
-            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_left'))
+            self._makeup_passes.append(EyeShadowPass(params, self._eyelid_part('eyelid', zone, 'left')))
         if side in ('right', 'both'):
-            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_right'))
+            self._makeup_passes.append(EyeShadowPass(params, self._eyelid_part('eyelid', zone, 'right')))
         self._notify_change()
-        logger.debug(f"Face {self._face_id}: Added eye shadow layer (side={side})")
+        logger.debug(f"Face {self._face_id}: Added eye shadow layer (side={side}, zone={zone})")
         return self
 
     def eyelid_edge(
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
+        zone: Literal['full', 'outer', 'center', 'inner'] = 'full',
         color: Tuple[int, int, int],
         opacity: float = 0.3,
         blur_strength: float = 0.5,
         glitter: float = 0.0
     ) -> Face:
         """
-        Add eye edge (extended area) makeup.
+        Add eye edge (目の淵: thin rim near the lash line) makeup.
 
         Args:
             side: 'left', 'right', or 'both'.
+            zone: Horizontal region of the rim to paint.
+                'full' (default) = whole width (backward compatible),
+                'outer' = 目尻側, 'center' = 中心部, 'inner' = 目頭側.
             color: RGB color tuple, e.g. (180, 130, 150).
             opacity: Makeup strength 0.0-1.0.
             blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
@@ -317,9 +361,11 @@ class Face:
 
         Examples:
             >>> face.eyelid_edge(color=(245, 41, 41), opacity=0.3)
+            >>> face.eyelid_edge(color=(245, 41, 41), zone='inner')
             >>> face.eyelid_edge(color=(245, 41, 41), glitter=0.5)
         """
         self._validate_side(side)
+        self._validate_zone(zone)
         self._validate_color(color)
         self._validate_opacity(opacity)
         self._validate_blur_strength(blur_strength)
@@ -331,11 +377,11 @@ class Face:
             glitter=glitter
         )
         if side in ('left', 'both'):
-            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_edge_left'))
+            self._makeup_passes.append(EyeShadowPass(params, self._eyelid_part('eyelid_edge', zone, 'left')))
         if side in ('right', 'both'):
-            self._makeup_passes.append(EyeShadowPass(params, 'eyelid_edge_right'))
+            self._makeup_passes.append(EyeShadowPass(params, self._eyelid_part('eyelid_edge', zone, 'right')))
         self._notify_change()
-        logger.debug(f"Face {self._face_id}: Added eye edge layer (side={side})")
+        logger.debug(f"Face {self._face_id}: Added eye edge layer (side={side}, zone={zone})")
         return self
 
     def eyeliner(

@@ -9,9 +9,21 @@ import cv2
 import numpy as np
 
 from face_makeup.constants import (
+    EYELID_CENTER_LEFT_INDICES,
+    EYELID_CENTER_RIGHT_INDICES,
+    EYELID_EDGE_CENTER_LEFT_INDICES,
+    EYELID_EDGE_CENTER_RIGHT_INDICES,
+    EYELID_EDGE_INNER_LEFT_INDICES,
+    EYELID_EDGE_INNER_RIGHT_INDICES,
     EYELID_EDGE_LEFT_INDICES,
+    EYELID_EDGE_OUTER_LEFT_INDICES,
+    EYELID_EDGE_OUTER_RIGHT_INDICES,
     EYELID_EDGE_RIGHT_INDICES,
+    EYELID_INNER_LEFT_INDICES,
+    EYELID_INNER_RIGHT_INDICES,
     EYELID_LEFT_INDICES,
+    EYELID_OUTER_LEFT_INDICES,
+    EYELID_OUTER_RIGHT_INDICES,
     EYELID_RIGHT_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
@@ -80,6 +92,20 @@ _INDICES_MAP = {
     "eyelid_right": EYELID_RIGHT_INDICES,
     "eyelid_edge_left": EYELID_EDGE_LEFT_INDICES,
     "eyelid_edge_right": EYELID_EDGE_RIGHT_INDICES,
+    # Overall band zones (outer/center/inner).
+    "eyelid_outer_left": EYELID_OUTER_LEFT_INDICES,
+    "eyelid_center_left": EYELID_CENTER_LEFT_INDICES,
+    "eyelid_inner_left": EYELID_INNER_LEFT_INDICES,
+    "eyelid_outer_right": EYELID_OUTER_RIGHT_INDICES,
+    "eyelid_center_right": EYELID_CENTER_RIGHT_INDICES,
+    "eyelid_inner_right": EYELID_INNER_RIGHT_INDICES,
+    # Edge band zones (outer/center/inner).
+    "eyelid_edge_outer_left": EYELID_EDGE_OUTER_LEFT_INDICES,
+    "eyelid_edge_center_left": EYELID_EDGE_CENTER_LEFT_INDICES,
+    "eyelid_edge_inner_left": EYELID_EDGE_INNER_LEFT_INDICES,
+    "eyelid_edge_outer_right": EYELID_EDGE_OUTER_RIGHT_INDICES,
+    "eyelid_edge_center_right": EYELID_EDGE_CENTER_RIGHT_INDICES,
+    "eyelid_edge_inner_right": EYELID_EDGE_INNER_RIGHT_INDICES,
 }
 
 

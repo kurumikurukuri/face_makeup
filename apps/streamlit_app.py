@@ -158,6 +158,15 @@ st.set_page_config(
 if "session_id" not in st.session_state:
     st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+# Eyelid paint-region (zone) label -> API value
+_EYELID_ZONE_OPTIONS = {
+    "全体": "full",
+    "目尻側": "outer",
+    "中心部": "center",
+    "目頭側": "inner",
+}
+_EYELID_ZONE_LABELS = list(_EYELID_ZONE_OPTIONS.keys())
+
 _SESSION_DEFAULTS = {
     'foundation_enabled': False,
     'foundation_color': "#FFDCC8",
@@ -177,10 +186,12 @@ _SESSION_DEFAULTS = {
     'eyelid_color': "#E0588C",
     'eyelid_opacity': 0.3,
     'eyelid_glitter': 0.0,
+    'eyelid_zone': "全体",
     'eyelid_edge_enabled': False,
     'eyelid_edge_color': "#F52929",
     'eyelid_edge_opacity': 0.5,
     'eyelid_edge_glitter': 0.0,
+    'eyelid_edge_zone': "全体",
     'eyeliner_enabled': False,
     'eyeliner_color': "#000000",
     'eyeliner_thickness': 2,
@@ -362,6 +373,13 @@ with st.sidebar:
             )
             st.caption(f"RGB: {hex_to_rgb(eyelid_color)}")
 
+            st.selectbox(
+                "塗り分け（部位）",
+                options=_EYELID_ZONE_LABELS,
+                key="eyelid_zone",
+                help="まぶたを横方向に分割して塗る部位（全体/目尻側/中心部/目頭側）"
+            )
+
             st.slider(
                 "不透明度",
                 min_value=0.1,
@@ -398,6 +416,13 @@ with st.sidebar:
                 key="eyelid_edge_color"
             )
             st.caption(f"RGB: {hex_to_rgb(eyelid_edge_color)}")
+
+            st.selectbox(
+                "塗り分け（部位）",
+                options=_EYELID_ZONE_LABELS,
+                key="eyelid_edge_zone",
+                help="目の淵を横方向に分割して塗る部位（全体/目尻側/中心部/目頭側）"
+            )
 
             st.slider(
                 "不透明度",
@@ -651,6 +676,7 @@ if image_source is not None:
                                 opacity=st.session_state.eyelid_opacity,
                                 blur_strength=0.25,
                                 glitter=st.session_state.eyelid_glitter,
+                                zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_zone],
                                 side='both'
                             )
 
@@ -661,6 +687,7 @@ if image_source is not None:
                                 opacity=st.session_state.eyelid_edge_opacity,
                                 blur_strength=0.25,
                                 glitter=st.session_state.eyelid_edge_glitter,
+                                zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_edge_zone],
                                 side='both'
                             )
 
@@ -753,12 +780,14 @@ if image_source is not None:
                     if st.session_state.eyelid_enabled:
                         st.write("**アイシャドウ**")
                         st.write(f"- カラー: {st.session_state.eyelid_color} {hex_to_rgb(st.session_state.eyelid_color)}")
+                        st.write(f"- 部位: {st.session_state.eyelid_zone}")
                         st.write(f"- 不透明度: {st.session_state.eyelid_opacity}")
                         st.write(f"- グリッター: {st.session_state.eyelid_glitter:.2f}")
 
                     if st.session_state.eyelid_edge_enabled:
                         st.write("**アイシャドウ（エッジ）**")
                         st.write(f"- カラー: {st.session_state.eyelid_edge_color} {hex_to_rgb(st.session_state.eyelid_edge_color)}")
+                        st.write(f"- 部位: {st.session_state.eyelid_edge_zone}")
                         st.write(f"- 不透明度: {st.session_state.eyelid_edge_opacity}")
                         st.write(f"- グリッター: {st.session_state.eyelid_edge_glitter:.2f}")
 
