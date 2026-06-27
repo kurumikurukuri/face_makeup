@@ -201,6 +201,7 @@ _SESSION_DEFAULTS = {
     'tear_bag_shadow_color': "#8C6E5A",
     'tear_bag_shadow_opacity': 0.4,
     'tear_bag_shadow_thickness': 2,
+    'tear_bag_size': 1.0,
     'eyeiris_enabled': False,
     'eyeiris_color': "#6496FF",
     'eyeiris_opacity': 0.5,
@@ -485,6 +486,16 @@ with st.sidebar:
         )
 
         if tear_bag_enabled:
+            st.slider(
+                "涙袋のサイズ",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.tear_bag_size,
+                step=0.05,
+                key="tear_bag_size",
+                help="涙袋の膨らみ（0: なし、1: 最大）。ハイライト・シャドウ両方に反映されます"
+            )
+
             st.markdown("**ハイライト**")
             tear_bag_highlight_color = st.color_picker(
                 "ハイライトカラー",
@@ -768,7 +779,8 @@ if image_source is not None:
                             face.tear_bag_highlight(
                                 color=hex_to_rgb(st.session_state.tear_bag_highlight_color),
                                 opacity=st.session_state.tear_bag_highlight_opacity,
-                                blur_strength=0.5,
+                                blur_strength=0.2,
+                                size=st.session_state.tear_bag_size,
                                 side='both'
                             )
                             face.tear_bag_shadow(
@@ -776,6 +788,7 @@ if image_source is not None:
                                 opacity=st.session_state.tear_bag_shadow_opacity,
                                 thickness=st.session_state.tear_bag_shadow_thickness,
                                 blur_strength=0.5,
+                                size=st.session_state.tear_bag_size,
                                 side='both'
                             )
 
@@ -879,6 +892,7 @@ if image_source is not None:
                         st.write(f"- ハイライト: {st.session_state.tear_bag_highlight_color} {hex_to_rgb(st.session_state.tear_bag_highlight_color)}")
                         st.write(f"- シャドウ: {st.session_state.tear_bag_shadow_color} {hex_to_rgb(st.session_state.tear_bag_shadow_color)}")
                         st.write(f"- シャドウ太さ: {st.session_state.tear_bag_shadow_thickness}")
+                        st.write(f"- サイズ: {st.session_state.tear_bag_size:.2f}")
 
                     if st.session_state.eyeiris_enabled:
                         st.write("**カラーコンタクト**")

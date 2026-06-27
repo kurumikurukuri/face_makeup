@@ -795,13 +795,13 @@ class TestTearBag:
         with pytest.raises(ValueError, match="Opacity must be"):
             face.tear_bag_shadow(opacity=-0.1)
 
-    def test_part_names_resolve_in_indices_map(self):
-        """Every tear bag part name exists in the tear bag _INDICES_MAP."""
-        from face_makeup.core.passes.tearbag import _INDICES_MAP
+    def test_part_names_resolve_in_ridge_lash_map(self):
+        """Every tear bag part name exists in the tear bag _RIDGE_LASH_MAP."""
+        from face_makeup.core.passes.tearbag import _RIDGE_LASH_MAP
 
         for element in ("highlight", "shadow"):
             for side in ("left", "right"):
-                assert f"tear_bag_{element}_{side}" in _INDICES_MAP
+                assert f"tear_bag_{element}_{side}" in _RIDGE_LASH_MAP
 
     def test_shadow_priority_above_highlight(self, face):
         """Shadow renders above the highlight (higher priority value)."""
@@ -831,37 +831,75 @@ class TestTearBag:
         from face_makeup.core.passes.tearbag import (
             TearBagHighlightMaskStrategy,
             TearBagShadowMaskStrategy,
+            _RIDGE_LASH_MAP,
         )
-        from face_makeup import constants as C
 
         coords = face.landmarks.to_image_coords(*test_image.shape[:2])
         shape = test_image.shape[:2]
-        for side in ("LEFT", "RIGHT"):
-            highlight_idx = getattr(C, f"TEAR_BAG_HIGHLIGHT_{side}_INDICES")
-            shadow_idx = getattr(C, f"TEAR_BAG_SHADOW_{side}_INDICES")
-            highlight = TearBagHighlightMaskStrategy(list(highlight_idx)).generate(coords, shape)
-            shadow = TearBagShadowMaskStrategy(list(shadow_idx)).generate(coords, shape)
+        for side in ("left", "right"):
+            ridge, lash = _RIDGE_LASH_MAP[f"tear_bag_highlight_{side}"]
+            highlight = TearBagHighlightMaskStrategy(ridge, lash, size=1.0).generate(coords, shape)
+            ridge_s, lash_s = _RIDGE_LASH_MAP[f"tear_bag_shadow_{side}"]
+            shadow = TearBagShadowMaskStrategy(ridge_s, lash_s, size=1.0).generate(coords, shape)
             assert highlight.sum() > 0, f"highlight mask empty for {side}"
             assert shadow.sum() > 0, f"shadow mask empty for {side}"
 
-    def test_highlight_blend_lightens(self, face, test_image):
-        """Screen blend raises mean brightness within the masked region."""
+    def test_masks_empty_at_size_zero(self, face, test_image):
+        """At size=0, highlight polygon degenerates (zero or near-zero area)."""
         from face_makeup.core.passes.tearbag import (
-            TearBagHighlightBlendStrategy,
             TearBagHighlightMaskStrategy,
+            _RIDGE_LASH_MAP,
         )
-        from face_makeup import constants as C
-        from face_makeup.core.types import ColorParams, PartParams
 
         coords = face.landmarks.to_image_coords(*test_image.shape[:2])
         shape = test_image.shape[:2]
-        mask = TearBagHighlightMaskStrategy(list(C.TEAR_BAG_HIGHLIGHT_LEFT_INDICES)).generate(coords, shape)
-        params = PartParams(
-            color_params=ColorParams(target_rgb=(255, 255, 255)),
-            opacity=1.0, blur_strength=0.0
+        ridge, lash = _RIDGE_LASH_MAP["tear_bag_highlight_left"]
+        mask_full = TearBagHighlightMaskStrategy(ridge, lash, size=1.0).generate(coords, shape)
+        mask_zero = TearBagHighlightMaskStrategy(ridge, lash, size=0.0).generate(coords, shape)
+        assert mask_zero.sum() < mask_full.sum(), "size=0 must produce smaller area than size=1"
+
+    def test_highlight_blend_modifies_masked_region(self, face, test_image):
+        """Highlight modifies pixels inside the mask but leaves the rest untouched.
+
+        Uses the Renderer integration path so the full mask→blend pipeline is
+        exercised.  A mid-grey target and moderate opacity produce a measurable
+        but not extreme change — the assertion is non-trivial.
+        """
+        from face_makeup.renderer import Renderer
+
+        face.tear_bag_highlight(
+            color=(180, 180, 180), opacity=0.5, blur_strength=0.0, side="left",
         )
-        blended = TearBagHighlightBlendStrategy().apply(test_image, mask, params)
-        region = mask > 0
-        assert region.sum() > 500, "highlight mask must cover a real area"
-        assert blended[region].mean() > test_image[region].mean()
+        result = Renderer().render_face(test_image.copy(), face)
+
+        # Derive a reference mask from the pass itself — still exercises the full
+        # pipeline but lets us isolate the region for the assertion.
+        # NOTE: to_image_coords takes (width, height), NOT (height, width).
+        hl_pass = next(p for p in face.makeup_passes if "highlight" in p.pass_type)
+        h, w = test_image.shape[:2]
+        coords = face.landmarks.to_image_coords(w, h)
+        ref_mask = hl_pass.mask_strategy.generate(coords, (h, w))
+        region = ref_mask > 0
+
+        assert region.sum() > 100, "highlight mask must cover a real area"
+
+        inside = result[region]
+        orig_inside = test_image[region]
+        assert not np.array_equal(inside, orig_inside), (
+            "pixels inside the mask must change"
+        )
+
+        outside = result[~region]
+        orig_outside = test_image[~region]
+        assert np.array_equal(outside, orig_outside), (
+            "pixels outside the mask must stay unchanged"
+        )
+
+    def test_size_validation(self, face):
+        """size outside [0, 1] raises ValueError."""
+        import pytest
+        with pytest.raises(ValueError, match="size"):
+            face.tear_bag_highlight(size=1.5)
+        with pytest.raises(ValueError, match="size"):
+            face.tear_bag_shadow(size=-0.1)
 

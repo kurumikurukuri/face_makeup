@@ -125,6 +125,38 @@ class EyeLinerParams(PartParams):
 
 
 @dataclass
+class TearBagHighlightParams(PartParams):
+    """Parameters for tear bag highlight.
+
+    Attributes:
+        size: Tear bag size 0.0-1.0. 0.0 = no tear bag (outer edge collapsed
+              onto lash line), 1.0 = full natural ridge (default).
+    """
+    size: float = 1.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not isinstance(self.size, (int, float)) or not 0.0 <= self.size <= 1.0:
+            raise ValueError(f"size must be 0.0-1.0, got {self.size}")
+
+
+@dataclass
+class TearBagShadowParams(EyeLinerParams):
+    """Parameters for tear bag shadow.
+
+    Attributes:
+        size: Shadow line position 0.0-1.0. Mirrors TearBagHighlightParams.size
+              so highlight and shadow track together.
+    """
+    size: float = 1.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not isinstance(self.size, (int, float)) or not 0.0 <= self.size <= 1.0:
+            raise ValueError(f"size must be 0.0-1.0, got {self.size}")
+
+
+@dataclass
 class EyeIrisParams(PartParams):
     """Parameters for eye iris (color contact lens effect).
 
