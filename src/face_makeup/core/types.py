@@ -131,13 +131,26 @@ class TearBagHighlightParams(PartParams):
     Attributes:
         size: Tear bag size 0.0-1.0. 0.0 = no tear bag (outer edge collapsed
               onto lash line), 1.0 = full natural ridge (default).
+        glitter: Glitter (lamé) effect intensity 0.0-1.0.
+            0.0 = matte highlight only (default).
+            Higher values add silver-white sparkle over the highlight.
+        seed: Optional integer seed for deterministic glitter particle
+            generation. When None (default), each call uses a fresh
+            unpredictable RNG; pass an integer for reproducible output
+            (useful for tests and comparison shots).
     """
     size: float = 1.0
+    glitter: float = 0.0
+    seed: int | None = None
 
     def __post_init__(self):
         super().__post_init__()
         if not isinstance(self.size, (int, float)) or not 0.0 <= self.size <= 1.0:
             raise ValueError(f"size must be 0.0-1.0, got {self.size}")
+        if not isinstance(self.glitter, (int, float)) or not 0.0 <= self.glitter <= 1.0:
+            raise ValueError(f"glitter must be 0.0-1.0, got {self.glitter}")
+        if self.seed is not None and not isinstance(self.seed, int):
+            raise ValueError(f"seed must be None or int, got {type(self.seed).__name__}")
 
 
 @dataclass

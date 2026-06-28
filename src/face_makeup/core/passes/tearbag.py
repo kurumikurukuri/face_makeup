@@ -30,11 +30,11 @@ from face_makeup.constants import (
     TEAR_BAG_ENVELOPE,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import soften_mask, standard_blend
+from face_makeup.core.blend.blend_utils import apply_glitter, soften_mask, standard_blend
 from face_makeup.core.types import TearBagHighlightParams, TearBagShadowParams
 
 if TYPE_CHECKING:
-    from face_makeup.core.types import FaceLandmarks, PartParams
+    from face_makeup.core.types import FaceLandmarks
 
 
 # Maps part_name → (ridge_indices, lash_indices).
@@ -189,13 +189,18 @@ class TearBagHighlightBlendStrategy(BlendStrategy):
     ``result = 1 - (1 - base)(1 - target)`` always lightens per channel, so a
     white or pearl highlight reads correctly. The pipeline feeds the blend an
     RGB image; ``target_rgb`` is applied channel-wise in the same order.
+
+    When ``params.glitter`` > 0, a silver-white sparkle overlay is applied on
+    top of the brightened highlight via the shared ``apply_glitter`` helper —
+    the same particle system used by eyeshadow, confined to the highlight
+    polygon by ``mask``.
     """
 
     def apply(
         self,
         image: np.ndarray,
         mask: np.ndarray,
-        params: PartParams,
+        params: TearBagHighlightParams,
         blender: object | None = None,
         segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
@@ -206,8 +211,13 @@ class TearBagHighlightBlendStrategy(BlendStrategy):
 
         screened = 1.0 - (1.0 - image_f) * (1.0 - target)
         blend_weight = soft_mask[:, :, np.newaxis] * params.opacity
-        result = image_f * (1.0 - blend_weight) + screened * blend_weight
-        return np.clip(result * 255.0, 0, 255).astype(np.uint8)
+        blended = image_f * (1.0 - blend_weight) + screened * blend_weight
+        result = np.clip(blended * 255.0, 0, 255).astype(np.uint8)
+
+        if params.glitter > 0:
+            rng = np.random.default_rng(params.seed) if params.seed is not None else None
+            result = apply_glitter(result, mask, params.glitter, rng=rng)
+        return result
 
 
 class TearBagShadowBlendStrategy(BlendStrategy):

@@ -12,7 +12,8 @@ from face_makeup.core.types import (
     EyeLinerParams,
     ColorParams,
     EyeIrisParams,
-    PartParams
+    PartParams,
+    TearBagHighlightParams,
 )
 from face_makeup.custom_landmark import NUM_TOTAL
 
@@ -902,4 +903,85 @@ class TestTearBag:
             face.tear_bag_highlight(size=1.5)
         with pytest.raises(ValueError, match="size"):
             face.tear_bag_shadow(size=-0.1)
+
+    def test_highlight_glitter_too_high(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.tear_bag_highlight(glitter=1.5)
+
+    def test_highlight_glitter_negative(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.tear_bag_highlight(glitter=-0.1)
+
+    def test_highlight_glitter_string(self, face):
+        with pytest.raises(ValueError, match="glitter must be"):
+            face.tear_bag_highlight(glitter="0.5")
+
+    def test_highlight_glitter_default_is_zero(self, face):
+        """tear_bag_highlight() with no glitter arg defaults to 0.0."""
+        face.tear_bag_highlight(side='left')
+        assert face.makeup_passes[0].params.glitter == 0.0
+
+    def test_highlight_glitter_propagates_to_params(self, face):
+        """Verify glitter value reaches TearBagHighlightParams."""
+        face.tear_bag_highlight(glitter=0.6, side='left')
+        assert face.makeup_passes[0].params.glitter == 0.6
+
+    def test_shadow_rejects_glitter_kwarg(self, face):
+        """Glitter is highlight-only; tear_bag_shadow does not accept it."""
+        with pytest.raises(TypeError):
+            face.tear_bag_shadow(glitter=0.5)
+
+    def test_highlight_glitter_changes_output(self, face, test_image):
+        """glitter > 0 adds a sparkle overlay, altering the highlighted region."""
+        from face_makeup.core.passes.tearbag import (
+            TearBagHighlightBlendStrategy,
+            TearBagHighlightMaskStrategy,
+            _RIDGE_LASH_MAP,
+        )
+        from face_makeup.core.types import ColorParams, TearBagHighlightParams
+
+        # NOTE: to_image_coords takes (width, height).
+        h, w = test_image.shape[:2]
+        coords = face.landmarks.to_image_coords(w, h)
+        ridge, lash = _RIDGE_LASH_MAP["tear_bag_highlight_left"]
+        mask = TearBagHighlightMaskStrategy(ridge, lash, size=1.0).generate(coords, (h, w))
+
+        base = dict(
+            color_params=ColorParams(target_rgb=(255, 255, 255)),
+            opacity=1.0, blur_strength=0.0,
+        )
+        matte = TearBagHighlightBlendStrategy().apply(
+            test_image, mask, TearBagHighlightParams(glitter=0.0, **base)
+        )
+        glittered = TearBagHighlightBlendStrategy().apply(
+            test_image, mask, TearBagHighlightParams(glitter=0.8, **base)
+        )
+        assert not np.array_equal(matte, glittered)
+
+
+class TestTearBagHighlightParamsGlitterValidation:
+    """Tests for TearBagHighlightParams glitter validation at the dataclass level."""
+
+    def test_glitter_too_high_via_dataclass(self):
+        with pytest.raises(ValueError, match="glitter must be"):
+            TearBagHighlightParams(
+                color_params=ColorParams(target_rgb=(255, 255, 255)),
+                opacity=0.3,
+                glitter=1.5,
+            )
+
+    def test_glitter_negative_via_dataclass(self):
+        with pytest.raises(ValueError, match="glitter must be"):
+            TearBagHighlightParams(
+                color_params=ColorParams(target_rgb=(255, 255, 255)),
+                opacity=0.3,
+                glitter=-0.1,
+            )
+
+    def test_glitter_default_is_zero_via_dataclass(self):
+        params = TearBagHighlightParams(
+            color_params=ColorParams(target_rgb=(255, 255, 255)),
+            opacity=0.3,
+        )
+        assert params.glitter == 0.0
 

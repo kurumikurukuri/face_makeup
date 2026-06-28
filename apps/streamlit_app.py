@@ -198,6 +198,7 @@ _SESSION_DEFAULTS = {
     'tear_bag_enabled': False,
     'tear_bag_highlight_color': "#FFF6E6",
     'tear_bag_highlight_opacity': 0.3,
+    'tear_bag_highlight_glitter': 0.0,
     'tear_bag_shadow_color': "#8C6E5A",
     'tear_bag_shadow_opacity': 0.4,
     'tear_bag_shadow_thickness': 2,
@@ -514,6 +515,16 @@ with st.sidebar:
                 help="涙袋の明るさ（0: なし、1: 最大）"
             )
 
+            st.slider(
+                "ハイライト グリッター（ラメ）",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.tear_bag_highlight_glitter,
+                step=0.05,
+                key="tear_bag_highlight_glitter",
+                help="ラメ効果の強さ（0: なし、1: 最大）"
+            )
+
             st.markdown("**シャドウ**")
             tear_bag_shadow_color = st.color_picker(
                 "シャドウカラー",
@@ -781,6 +792,7 @@ if image_source is not None:
                                 opacity=st.session_state.tear_bag_highlight_opacity,
                                 blur_strength=0.2,
                                 size=st.session_state.tear_bag_size,
+                                glitter=st.session_state.tear_bag_highlight_glitter,
                                 side='both'
                             )
                             face.tear_bag_shadow(
@@ -890,6 +902,7 @@ if image_source is not None:
                     if st.session_state.tear_bag_enabled:
                         st.write("**涙袋**")
                         st.write(f"- ハイライト: {st.session_state.tear_bag_highlight_color} {hex_to_rgb(st.session_state.tear_bag_highlight_color)}")
+                        st.write(f"- ハイライト グリッター: {st.session_state.tear_bag_highlight_glitter:.2f}")
                         st.write(f"- シャドウ: {st.session_state.tear_bag_shadow_color} {hex_to_rgb(st.session_state.tear_bag_shadow_color)}")
                         st.write(f"- シャドウ太さ: {st.session_state.tear_bag_shadow_thickness}")
                         st.write(f"- サイズ: {st.session_state.tear_bag_size:.2f}")

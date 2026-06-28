@@ -486,6 +486,7 @@ class Face:
         opacity: float = 0.3,
         blur_strength: float = 0.5,
         size: float = 1.0,
+        glitter: float = 0.0,
     ) -> Face:
         """
         Add tear bag (涙袋) highlight — filled polygon on the lower-eyelid bulge.
@@ -501,22 +502,28 @@ class Face:
                 this fraction of opacity; center stays 1.0.
             size: Tear bag size 0.0-1.0. 0.0 collapses the outer edge onto the
                 lash line (no visible tear bag); 1.0 is the full natural ridge.
+            glitter: Glitter (lamé) effect intensity 0.0-1.0.
+                0.0 = matte highlight only (default). Higher values add
+                silver-white sparkle over the highlight.
 
         Returns:
             Self for chaining.
 
         Examples:
             >>> face.tear_bag_highlight(color=(255, 255, 255), opacity=0.3, size=0.8)
+            >>> face.tear_bag_highlight(color=(255, 255, 255), glitter=0.5)
         """
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
         self._validate_blur_strength(blur_strength)
+        self._validate_glitter(glitter)
         params = TearBagHighlightParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
             blur_strength=blur_strength,
             size=size,
+            glitter=glitter,
         )
         if side in ('left', 'both'):
             self._makeup_passes.append(TearBagHighlightPass(params, 'tear_bag_highlight_left'))
