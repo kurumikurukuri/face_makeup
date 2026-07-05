@@ -6,11 +6,10 @@ and bloom post-processing as composable stages. Designed for CPU-only
 execution via OpenCV + NumPy.
 
 Brightness and colour are both driven by each particle's random static
-phase rather than 3D view angle — an earlier angle-tracking approach (via
-face landmark normals) added significant code for a visually negligible
-effect, so it was removed in favour of this simpler model. Particle colour
-is a fixed silver-white, independent of the eyeshadow base colour — real
-lamé reads as its own sparkle layer, not a lit-up tint of the shadow
+phase rather than 3D view angle — angle-tracking via face landmark normals
+would add significant code for a visually negligible effect. Particle
+colour is a fixed silver-white, independent of the eyeshadow base colour —
+real lamé reads as its own sparkle layer, not a lit-up tint of the shadow
 underneath.
 
 Usage::
@@ -36,6 +35,17 @@ import cv2
 import numpy as np
 
 
+# Fixed silver-white sparkle colour (RGB, 0-255), independent of the
+# eyeshadow base colour — real lamé pigment reads as its own warm-white
+# highlight, not a lightened tint of the shadow underneath.
+_GLITTER_BASE_COLOR_RGB = np.array([255.0, 250.0, 245.0], dtype=np.float32)
+
+# Particle density factor: fraction of mask area seeded with particles.
+# 0.03 gives a cosmetic-grade sparkle distribution without visible
+# clumping at typical face resolutions.
+_GLITTER_DENSITY_SCALE = 0.03
+
+
 class ParticleSet(NamedTuple):
     """Collection of glitter particles.
 
@@ -43,7 +53,7 @@ class ParticleSet(NamedTuple):
         positions: (P, 2) float32 array of image-space coordinates (x, y).
         sizes: (P,) float32 array of radii in pixels.
         phases: (P,) float32 array of static phase offsets in [0, 2π).
-        base_color: (3,) float32 BGR colour (0-255) — fixed silver-white,
+        base_color: (3,) float32 RGB colour (0-255) — fixed silver-white,
             independent of the eyeshadow base colour.
     """
 
@@ -61,7 +71,7 @@ def generate_particles(
     intensity: float,
     rng: np.random.Generator,
     base_size: float = 0.5,
-    density_scale: float = 0.03,
+    density_scale: float = _GLITTER_DENSITY_SCALE,
     min_distance_factor: float = 1,
 ) -> ParticleSet:
     """Generate glitter particles via Poisson-disk (dart-throwing) sampling.
@@ -78,7 +88,8 @@ def generate_particles(
         rng: Seeded random generator for deterministic output.
         base_size: Base particle radius in pixels (default 0.5).
         density_scale: Multiplier on mask_area * intensity for target
-            particle count (default 0.03).
+            particle count. Defaults to ``_GLITTER_DENSITY_SCALE`` (0.03);
+            pass an explicit value to override.
         min_distance_factor: Poisson-disk rejection radius as a fraction
             of the average-cell spacing (default 1). Lower values allow
             tighter packing; higher values enforce stricter spacing.
@@ -95,7 +106,7 @@ def generate_particles(
             positions=np.empty((0, 2), dtype=np.float32),
             sizes=np.empty((0,), dtype=np.float32),
             phases=np.empty((0,), dtype=np.float32),
-            base_color=_GLITTER_BASE_COLOR_BGR.copy(),
+            base_color=_GLITTER_BASE_COLOR_RGB.copy(),
         )
 
     # Determine target particle count
@@ -106,11 +117,10 @@ def generate_particles(
     num_mask_px = len(xs_masked)
     h, w = mask_bool.shape
 
-    # Minimum spacing derived from the average area per particle. A 0.65
-    # factor was tried first but left too many particles sitting right at
-    # the rejection floor, reading as small touching clumps with sparse
-    # gaps elsewhere. Values closer to 1.0 keep spacing close to true
-    # Poisson-disk strictness for a visibly more even (blue-noise) distribution.
+    # Minimum spacing derived from the average area per particle. Keeping the
+    # factor close to 1.0 preserves true Poisson-disk strictness, giving a
+    # more even (blue-noise) distribution instead of small touching clumps
+    # with sparse gaps elsewhere.
     min_distance = float(np.sqrt(mask_area / target_count) * min_distance_factor)
 
     positions_list: list[tuple[float, float]] = []
@@ -154,8 +164,8 @@ def generate_particles(
     # Static phase for twinkle: [0, 2π)
     phases = rng.uniform(0, 2.0 * np.pi, size=num_particles).astype(np.float32)
 
-    # Fixed silver-white base colour (BGR for OpenCV drawing)
-    base_color = _GLITTER_BASE_COLOR_BGR.copy()
+    # Fixed silver-white base colour (RGB)
+    base_color = _GLITTER_BASE_COLOR_RGB.copy()
 
     return ParticleSet(
         positions=positions,
@@ -193,7 +203,7 @@ def compute_iridescent_colors(
     base_color: np.ndarray,
     hue_range_deg: float = 180.0,
 ) -> np.ndarray:
-    """Compute per-particle BGR colour with interference-style hue shift.
+    """Compute per-particle RGB colour with interference-style hue shift.
 
     Real lamé pigment shifts colour with viewing angle (e.g. pink → blue →
     gold) due to thin-film interference (spec §4). Rather than tracking
@@ -204,14 +214,14 @@ def compute_iridescent_colors(
     Args:
         positions: (P, 2) float32 particle positions (only used for count).
         phases: (P,) float32 static twinkle phases — hue jitter driver.
-        base_color: (3,) float32 BGR base colour (0-255).
+        base_color: (3,) float32 RGB base colour (0-255).
         hue_range_deg: Maximum hue rotation in either direction, degrees.
             ``sin(phase)`` spans [-1, 1], so the shift spans
             [-hue_range_deg, +hue_range_deg]; 180° makes that span the
             full hue wheel (-180° and +180° are the same hue).
 
     Returns:
-        (P, 3) float32 BGR colours, one per particle.
+        (P, 3) float32 RGB colours, one per particle.
     """
     num = len(positions)
     if num == 0:
@@ -252,14 +262,14 @@ def render_sparkle_overlay(
         image_shape: (H, W) of the target image.
         particles: ParticleSet from ``generate_particles``.
         brightness: (P,) float32 per-particle brightness multipliers in [0, 1].
-        colors: Optional (P, 3) float32 per-particle BGR colours (0-255), e.g.
+        colors: Optional (P, 3) float32 per-particle RGB colours (0-255), e.g.
             from ``compute_iridescent_colors``. Defaults to the shared
             ``particles.base_color`` for every particle.
         blur_sigma: Gaussian blur sigma for sparkle softening (default 1.0).
             Higher = softer, more diffuse sparkles.
 
     Returns:
-        (H, W, 3) float32 BGR sparkle overlay (no alpha — additive blend later).
+        (H, W, 3) float32 RGB sparkle overlay (no alpha — additive blend later).
     """
     h, w = image_shape
     overlay = np.zeros((h, w, 3), dtype=np.float32)
@@ -290,7 +300,7 @@ def render_sparkle_overlay(
             continue
         # Dim the particle colour by per-particle brightness
         particle_color = colors[i] * brightness[i]
-        # Clamp to valid BGR range
+        # Clamp to valid RGB range
         particle_color = np.clip(particle_color, 0, 255)
         radius = float(sizes[i])
         quad = _quad_points(px, py, radius, float(phases[i]))
@@ -320,8 +330,8 @@ def apply_bloom(
     Gaussian blur, then upsamples and additively blends back.
 
     Args:
-        image: (H, W, 3) uint8 BGR image (already composited with sparkles).
-        sparkle_overlay: (H, W, 3) float32 BGR sparkle overlay (pre-composite).
+        image: (H, W, 3) uint8 RGB image (already composited with sparkles).
+        sparkle_overlay: (H, W, 3) float32 RGB sparkle overlay (pre-composite).
         intensity: Glitter intensity 0.0-1.0.
         threshold: Fraction of max overlay luminance above which bloom is triggered.
         bloom_strength: Override bloom strength. Defaults to ``0.3 * intensity``.
@@ -329,7 +339,7 @@ def apply_bloom(
             ``8.0 + intensity * 16.0``. Higher = wider, softer glow.
 
     Returns:
-        (H, W, 3) uint8 BGR image with bloom applied.
+        (H, W, 3) uint8 RGB image with bloom applied.
     """
     if intensity <= 0.0 or sparkle_overlay.max() <= 0.0:
         return image
@@ -339,12 +349,11 @@ def apply_bloom(
 
     h, w = image.shape[:2]
 
-    # BT.601 luma from overlay (BGR channel order — OpenCV convention).
-    # Weights are 0.299*R + 0.587*G + 0.114*B, applied to BGR-indexed channels.
+    # Luminance from overlay — BT.601 weights in RGB order
     luminance = (
-        0.114 * sparkle_overlay[:, :, 0]
+        0.299 * sparkle_overlay[:, :, 0]
         + 0.587 * sparkle_overlay[:, :, 1]
-        + 0.299 * sparkle_overlay[:, :, 2]
+        + 0.114 * sparkle_overlay[:, :, 2]
     )
 
     max_lum = luminance.max()
@@ -366,7 +375,7 @@ def apply_bloom(
 
     bloom_full = cv2.resize(small_blurred, (w, h), interpolation=cv2.INTER_LINEAR)
 
-    # Additive blend (BGR)
+    # Additive blend (RGB)
     result = image.astype(np.float32)
     for c in range(3):
         result[:, :, c] += bloom_full * bloom_strength
@@ -375,12 +384,6 @@ def apply_bloom(
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-
-# Fixed silver-white sparkle colour (BGR, 0-255), independent of the
-# eyeshadow base colour — real lamé pigment reads as its own cool-white
-# highlight, not a lightened tint of the shadow underneath.
-_GLITTER_BASE_COLOR_BGR = np.array([255.0, 250.0, 245.0], dtype=np.float32)
 
 
 def _quad_points(cx: float, cy: float, radius: float, rotation: float) -> np.ndarray:
@@ -406,7 +409,7 @@ def _shift_hue(
     hue_shift_deg: np.ndarray,
     saturation_gain: float | np.ndarray = 0.75,
 ) -> np.ndarray:
-    """Rotate the hue of a shared base BGR colour per particle.
+    """Rotate the hue of a shared base RGB colour per particle.
 
     Converts to HSV, rotates the hue channel (OpenCV's 8-bit HSV stores hue
     in units of 2°, hence the ``/2`` factor), and converts back. The base
@@ -420,20 +423,20 @@ def _shift_hue(
     change.
 
     Args:
-        base_color: (3,) float32 BGR colour (0-255), shared base for all particles.
+        base_color: (3,) float32 RGB colour (0-255), shared base for all particles.
         hue_shift_deg: (P,) float32 hue rotation in degrees.
         saturation_gain: Saturation (0-255 scale) added per degree of hue
             rotation magnitude — scalar (shared) or (P,) float32 (per-particle).
 
     Returns:
-        (P, 3) float32 BGR colours, one per particle.
+        (P, 3) float32 RGB colours, one per particle.
     """
     num = len(hue_shift_deg)
     if num == 0:
         return np.empty((0, 3), dtype=np.float32)
 
-    bgr_u8 = np.clip(base_color, 0, 255).astype(np.uint8).reshape(1, 1, 3)
-    hsv = cv2.cvtColor(bgr_u8, cv2.COLOR_BGR2HSV).astype(np.float32)
+    rgb_u8 = np.clip(base_color, 0, 255).astype(np.uint8).reshape(1, 1, 3)
+    hsv = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2HSV).astype(np.float32)
     h0, s0, v0 = hsv[0, 0]
 
     hue_shift_units = hue_shift_deg / 2.0  # degrees → OpenCV's 0-179 hue scale
@@ -445,5 +448,5 @@ def _shift_hue(
     hsv_particles[:, 0, 1] = saturations.astype(np.uint8)
     hsv_particles[:, 0, 2] = np.uint8(v0)
 
-    bgr_particles = cv2.cvtColor(hsv_particles, cv2.COLOR_HSV2BGR).astype(np.float32)
-    return bgr_particles.reshape(num, 3)
+    rgb_particles = cv2.cvtColor(hsv_particles, cv2.COLOR_HSV2RGB).astype(np.float32)
+    return rgb_particles.reshape(num, 3)

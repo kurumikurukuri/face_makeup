@@ -8,7 +8,7 @@ import pytest
 
 from face_makeup.constants import (
     EYE_IRIS_LEFT_INDICES,
-    LEFT_EYE_IDX,
+    LEFT_EYE_INDICES,
 )
 from face_makeup.core.passes.eyeiris import (
     EyeIrisBlendStrategy,
@@ -37,7 +37,7 @@ def center_mask():
 
 def _build_iris_coords() -> np.ndarray:
     """Build coords array with iris landmark points in a circle + eye contour."""
-    all_indices = set(EYE_IRIS_LEFT_INDICES) | set(LEFT_EYE_IDX)
+    all_indices = set(EYE_IRIS_LEFT_INDICES) | set(LEFT_EYE_INDICES)
     max_idx = max(all_indices)
     coords = np.zeros((max_idx + 1, 2), dtype=np.float32)
 
@@ -47,8 +47,8 @@ def _build_iris_coords() -> np.ndarray:
         coords[idx] = [50.0 + 8.0 * np.cos(angle), 50.0 + 8.0 * np.sin(angle)]
 
     # Eye contour: larger polygon around (50, 50)
-    for i, idx in enumerate(LEFT_EYE_IDX):
-        angle = 2 * np.pi * i / len(LEFT_EYE_IDX)
+    for i, idx in enumerate(LEFT_EYE_INDICES):
+        angle = 2 * np.pi * i / len(LEFT_EYE_INDICES)
         coords[idx] = [50.0 + 20.0 * np.cos(angle), 50.0 + 12.0 * np.sin(angle)]
 
     return coords
@@ -64,7 +64,7 @@ class TestEyeIrisMaskStrategy:
         """Fewer than 5 iris points → early return zero mask (fitEllipse requires ≥5)."""
         # Create a strategy with only 4 indices — len(points) < 5 triggers early return
         strategy = EyeIrisMaskStrategy(
-            list(EYE_IRIS_LEFT_INDICES[:4]), list(LEFT_EYE_IDX)
+            list(EYE_IRIS_LEFT_INDICES[:4]), list(LEFT_EYE_INDICES)
         )
         coords = _build_iris_coords()
         mask = strategy.generate(coords, (100, 100))
@@ -74,7 +74,7 @@ class TestEyeIrisMaskStrategy:
         """5 iris points + eyelid contour → clipped ellipse mask."""
         coords = _build_iris_coords()
         strategy = EyeIrisMaskStrategy(
-            list(EYE_IRIS_LEFT_INDICES), list(LEFT_EYE_IDX)
+            list(EYE_IRIS_LEFT_INDICES), list(LEFT_EYE_INDICES)
         )
         mask = strategy.generate(coords, (100, 100))
         assert mask.dtype == np.uint8

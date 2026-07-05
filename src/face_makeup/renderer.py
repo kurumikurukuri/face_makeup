@@ -9,6 +9,7 @@ Not exposed in public API - used by ImageContext.
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional
 from uuid import uuid4
@@ -75,7 +76,17 @@ class Renderer:
         coords = face.landmarks.to_image_coords(w, h)
 
         # Phase 1 — Mask generation (dependency-ordered)
-        mask_registry: Dict[str, np.ndarray] = {}
+        # Keyed by id(pass_) rather than pass_type: several passes can share
+        # the same pass_type (e.g. two tear_bag_highlight layers with
+        # different `size` stacked for a gradient look), each with a mask
+        # baked from its own construction-time params. A pass_type-keyed
+        # dict would let the later instance's mask silently overwrite the
+        # earlier one's, so every pass gets its own registry slot.
+        mask_registry: Dict[int, np.ndarray] = {}
+        # Parallel index for exclusion lookups, which are still expressed as
+        # pass_type names — subtracts the union of every mask registered
+        # under that name so far.
+        pass_type_masks: Dict[str, List[np.ndarray]] = defaultdict(list)
         hard_masks: Dict[str, np.ndarray] = {}
 
         # Run hair segmentation once and subtract from every pass mask
@@ -98,35 +109,46 @@ class Renderer:
             if hair_mask is not None:
                 mask = cv2.subtract(mask, hair_mask)
 
-            # Subtract exclusion masks
+            # Subtract exclusion masks (union of all instances of each
+            # excluded pass_type produced so far)
             for exclusion_name in pass_.exclusion_passes:
-                if exclusion_name in mask_registry:
-                    exclusion = mask_registry[exclusion_name]
+                for exclusion in pass_type_masks.get(exclusion_name, []):
                     if exclusion.dtype != mask.dtype:
                         exclusion = exclusion.astype(mask.dtype)
                     mask = cv2.subtract(mask, exclusion)
 
-            mask_registry[pass_.pass_type] = mask
+            mask_registry[id(pass_)] = mask
+            pass_type_masks[pass_.pass_type].append(mask)
+            # Debug dump is keyed by pass_type; if multiple passes share a
+            # pass_type, only the last one's hard mask is saved for preview
+            # (rendering itself is unaffected — see mask_registry above).
             hard_masks[pass_.pass_type] = mask
 
         if debug and self._visualizer:
             self._visualizer.save_masks(image, hard_masks, face_session, "hard")
 
-        # Convert masks to float32 0-1 in local dict (no mutation of pass objects)
-        soft_mask_registry: Dict[str, np.ndarray] = {}
+        # Convert masks to float32 0-1 and store in parallel dictionary.
+        # Using a dict instead of mutating MakeupPass preserves the dataclass
+        # contract and prevents state leakage across renders.
+        mask_cache: dict[int, np.ndarray] = {}
         for pass_ in passes:
-            if pass_.pass_type in mask_registry:
-                soft_mask_registry[pass_.pass_type] = (
-                    mask_registry[pass_.pass_type].astype(np.float32) / 255.0
+            if id(pass_) in mask_registry:
+                mask_cache[id(pass_)] = (
+                    mask_registry[id(pass_)].astype(np.float32) / 255.0
                 )
 
         if debug and self._visualizer:
-            self._visualizer.save_masks(image, soft_mask_registry, face_session, "soft")
+            soft_masks = {
+                pass_.pass_type: mask_cache[id(pass_)]
+                for pass_ in passes
+                if id(pass_) in mask_cache
+            }
+            self._visualizer.save_masks(image, soft_masks, face_session, "soft")
 
         # Phase 2 — Blend application (priority-sorted, lowest first)
         result = image.copy()
         for pass_ in sorted(passes, key=lambda p: p.priority):
-            cached = soft_mask_registry.get(pass_.pass_type)
+            cached = mask_cache.get(id(pass_))
             if cached is None or not cached.any():
                 if cached is None:
                     logger.warning(f"No mask for pass: {pass_.pass_type}")

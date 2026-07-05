@@ -7,6 +7,7 @@ parameters, priority, and dependency declarations into one composable unit.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -55,7 +56,7 @@ class BlendStrategy(ABC):
         segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
-        """Return (H, W, 3) uint8 BGR blended result (new array, input unchanged)."""
+        """Return (H, W, 3) uint8 RGB blended result (new array, input unchanged)."""
         ...
 
 
@@ -89,6 +90,12 @@ def topological_sort(passes: List[MakeupPass]) -> List[MakeupPass]:
     Passes with no exclusions come first.  Each subsequent pass is only
     emitted once all of its ``exclusion_passes`` have been produced.
 
+    Multiple passes may share a pass_type (e.g. two tear_bag_highlight
+    layers with different ``size`` stacked for a gradient look) — a
+    pass_type only counts as fully produced once *every* pass with that
+    pass_type has been ordered, so a dependent pass never runs before all
+    of its exclusion source's instances are ready.
+
     Exclusion references to pass_types that don't exist in the input are
     silently ignored (optional exclusion — if the source isn't applied,
     there's nothing to subtract).
@@ -97,7 +104,8 @@ def topological_sort(passes: List[MakeupPass]) -> List[MakeupPass]:
         ValueError: If the exclusion graph contains an unresolvable cycle.
     """
     pass_types = {p.pass_type for p in passes}
-    produced: set[str] = set()
+    total_by_type = Counter(p.pass_type for p in passes)
+    produced_count: Counter = Counter()
     ordered: List[MakeupPass] = []
     remaining = list(passes)
 
@@ -105,9 +113,9 @@ def topological_sort(passes: List[MakeupPass]) -> List[MakeupPass]:
         for p in list(remaining):
             # Only consider exclusions that reference existing passes
             required = [e for e in p.exclusion_passes if e in pass_types]
-            if all(e in produced for e in required):
+            if all(produced_count[e] >= total_by_type[e] for e in required):
                 ordered.append(p)
-                produced.add(p.pass_type)
+                produced_count[p.pass_type] += 1
                 remaining.remove(p)
                 break
         else:

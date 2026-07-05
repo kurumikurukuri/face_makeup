@@ -204,12 +204,19 @@ class TestGenerateParticles:
             assert expected_mean * 0.75 < particles.sizes.mean() < expected_mean * 1.25
 
     def test_density_scale_affects_count(self, eye_mask):
-        """Higher density_scale should produce more particles."""
+        """Higher density_scale must produce strictly more particles.
+
+        Regression guard: an earlier version shadowed the ``density_scale``
+        parameter with a module constant inside the function body, silently
+        ignoring the caller's value — both calls below returned identical
+        counts. The strict ``>`` assertion fails if that shadowing returns.
+        """
         rng1 = np.random.default_rng(42)
         rng2 = np.random.default_rng(42)
         p_low = generate_particles(eye_mask, 0.5, rng1, density_scale=0.01)
         p_high = generate_particles(eye_mask, 0.5, rng2, density_scale=0.08)
-        assert len(p_high.positions) >= len(p_low.positions)
+        assert len(p_low.positions) > 0
+        assert len(p_high.positions) > len(p_low.positions)
 
     def test_min_distance_factor_affects_spacing(self, eye_mask):
         """Higher min_distance_factor should produce fewer particles (stricter spacing)."""
@@ -233,6 +240,21 @@ class TestGenerateParticles:
         )
         assert isinstance(particles, ParticleSet)
         assert len(particles.positions) > 0
+
+    def test_density_scale_default_matches_constant(self):
+        """Default density_scale binds the module constant directly (no sentinel).
+
+        Regression guard: an earlier design used ``None`` as a sentinel and
+        looked the constant up inside the body. This asserts the constant is
+        now bound as the default argument, so callers see the real default
+        via ``inspect.signature``.
+        """
+        from face_makeup.core.blend import glitter
+
+        sig = inspect.signature(generate_particles)
+        default = sig.parameters["density_scale"].default
+        assert default is not None
+        assert default == glitter._GLITTER_DENSITY_SCALE
 
 
 # ── compute_static_twinkle ────────────────────────────────────────────────────

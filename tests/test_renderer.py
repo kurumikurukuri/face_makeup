@@ -43,6 +43,19 @@ class _NoopMaskStrategy(MaskStrategy):
         return mask
 
 
+class _RegionMaskStrategy(MaskStrategy):
+    """Mask covering a fixed, per-instance rectangular region."""
+
+    def __init__(self, y0, y1, x0, x1):
+        self._region = (y0, y1, x0, x1)
+
+    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+        mask = np.zeros(image_shape, dtype=np.uint8)
+        y0, y1, x0, x1 = self._region
+        mask[y0:y1, x0:x1] = 255
+        return mask
+
+
 class _IdentityBlendStrategy(BlendStrategy):
     """Returns image unchanged (for testing pipeline flow)."""
 
@@ -128,6 +141,39 @@ class TestTwoPhasePipeline:
         image = np.full((100, 100, 3), 128, dtype=np.uint8)
         result = renderer.render_face(image, face)
         assert result.shape == (100, 100, 3)
+
+    def test_same_pass_type_layers_keep_independent_masks(self, renderer):
+        """Regression: two passes sharing a pass_type (e.g. two
+        tear_bag_highlight layers with different `size` stacked for a
+        gradient look) must each blend with their OWN mask, not whichever
+        instance's mask happened to be registered last under that name.
+        """
+        small = MakeupPass(
+            pass_type="layered", priority=0,
+            params=PartParams(
+                color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5,
+            ),
+            landmark_indices=[],
+            mask_strategy=_RegionMaskStrategy(10, 20, 10, 20),
+            blend_strategy=_TintBlendStrategy(increment=10),
+        )
+        large = MakeupPass(
+            pass_type="layered", priority=1,
+            params=PartParams(
+                color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5,
+            ),
+            landmark_indices=[],
+            mask_strategy=_RegionMaskStrategy(50, 90, 50, 90),
+            blend_strategy=_TintBlendStrategy(increment=50),
+        )
+        face = _make_face(makeup_passes=[small, large])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+
+        # small's own region got exactly small's tint (not skipped, not large's)
+        assert result[15, 15, 0] == 10
+        # large's own region got exactly large's tint (not both stacked)
+        assert result[70, 70, 0] == 50
 
     def test_missing_exclusion_source_skipped(self, renderer):
         """Dependent with exclusion from non-existent pass: silently skipped."""

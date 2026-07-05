@@ -64,10 +64,13 @@ def apply_target_color(
 
     blend_weight = mask[:, :, np.newaxis] * opacity
 
-    # Achromatic fallback
+    # Achromatic fallback: lerp toward the target's own V (not toward black),
+    # so a white/gray/black target color reads correctly instead of always
+    # darkening.
     if target_hsv[1] < 0.05:
-        darken_factor = np.clip(1.0 - blend_weight, 0.0, 1.0)
-        return rgb * darken_factor
+        target_v = float(target_hsv[2])
+        gray = np.array([target_v, target_v, target_v], dtype=np.float32)
+        return rgb * (1.0 - blend_weight) + gray * blend_weight
 
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     mask_bool = mask > 0
@@ -104,8 +107,10 @@ def apply_hue_shift_blend(
     blend_weight = soft_mask[:, :, np.newaxis] * opacity
 
     if target_s < 0.05:
-        darken_factor = np.clip(1.0 - blend_weight, 0.0, 1.0)
-        return np.clip(image_float * darken_factor * 255.0, 0, 255).astype(np.uint8)
+        target_v = float(target_hsv[2])
+        gray = np.array([target_v, target_v, target_v], dtype=np.float32)
+        result_float = image_float * (1.0 - blend_weight) + gray * blend_weight
+        return np.clip(result_float * 255.0, 0, 255).astype(np.uint8)
 
     hsv = cv2.cvtColor(image_float, cv2.COLOR_RGB2HSV)
     hsv_shifted = hsv.copy()
@@ -128,7 +133,7 @@ def apply_glitter(
     glitter_intensity: float,
     rng: np.random.Generator | None = None,
     base_size: float = 0.5,
-    density_scale: float = 0.03,
+    density_scale: float | None = None,
     min_distance_factor: float = 1,
     sparkle_alpha: float = 0.8,
     sparkle_blur_sigma: float = 1.0,
@@ -147,13 +152,14 @@ def apply_glitter(
     colour underneath, rather than a lit-up tint of it.
 
     Args:
-        image: BGR uint8 image (H, W, 3) — matte blend already applied.
+        image: RGB uint8 image (H, W, 3) — matte blend already applied.
         mask: Soft mask float32 (0.0-1.0).
         glitter_intensity: 0.0-1.0 — controls particle density and bloom.
         rng: Optional random generator (deterministic with seed for tests).
         base_size: Base particle radius in pixels (default 0.5).
         density_scale: Multiplier on mask_area * intensity for target
-            particle count (default 0.03).
+            particle count. ``None`` defers to ``generate_particles``'
+            default (``_GLITTER_DENSITY_SCALE``, 0.03).
         min_distance_factor: Poisson-disk rejection radius as a fraction
             of the average-cell spacing (default 1).
         sparkle_alpha: Additive blend strength for sparkle overlay (default 0.8).
@@ -165,7 +171,7 @@ def apply_glitter(
             8.0 + intensity * 16.0.
 
     Returns:
-        BGR uint8 image with glitter overlay applied (new array).
+        RGB uint8 image with glitter overlay applied (new array).
     """
     from face_makeup.core.blend.glitter import (
         apply_bloom,
@@ -185,11 +191,17 @@ def apply_glitter(
         return image
 
     # 1. Generate particles
+    # density_scale=None defers to generate_particles' own default
+    # (_GLITTER_DENSITY_SCALE) — forward it only when the caller set an
+    # explicit value, so the default binds inside generate_particles.
+    particle_kwargs: dict = {
+        "base_size": base_size,
+        "min_distance_factor": min_distance_factor,
+    }
+    if density_scale is not None:
+        particle_kwargs["density_scale"] = density_scale
     particles = generate_particles(
-        mask, glitter_intensity, rng,
-        base_size=base_size,
-        density_scale=density_scale,
-        min_distance_factor=min_distance_factor,
+        mask, glitter_intensity, rng, **particle_kwargs
     )
 
     if len(particles.positions) == 0:
@@ -234,14 +246,14 @@ def standard_blend(
     """Standard HSV-aware blend: soften_mask + apply_target_color.
 
     Args:
-        image: Input BGR uint8 image (H, W, 3).
+        image: Input RGB uint8 image (H, W, 3).
         mask: Mask float32 (0.0-1.0) or uint8 (0/255).
         target_rgb: Target color as (R, G, B) 0-255.
         opacity: Opacity (0.0-1.0).
         blur_strength: Edge attenuation factor (0.0-1.0).
 
     Returns:
-        BGR uint8 image with makeup applied.
+        RGB uint8 image with makeup applied.
     """
     soft_mask = soften_mask(mask, blur_strength)
     image_float = image.astype(np.float32) / 255.0

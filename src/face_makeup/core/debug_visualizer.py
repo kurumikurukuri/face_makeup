@@ -679,7 +679,7 @@ class DebugVisualizer:
             particles: ParticleSet from ``generate_particles``.
             brightness: (P,) float32 per-particle brightness in [0, 1].
             session_id: Session identifier for filename.
-            colors: Optional (P, 3) float32 per-particle BGR colours (0-255).
+            colors: Optional (P, 3) float32 per-particle RGB colours (0-255).
                 Defaults to ``particles.base_color`` for every particle.
         """
         img = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
@@ -737,7 +737,7 @@ class DebugVisualizer:
         of the per-particle sparkle shapes, colours, and brightness.
 
         Args:
-            sparkle_overlay: (H, W, 3) float32 BGR sparkle overlay.
+            sparkle_overlay: (H, W, 3) float32 RGB sparkle overlay.
             session_id: Session identifier for filename.
         """
         session_id = _sanitize_session_id(session_id)

@@ -9,8 +9,8 @@ import numpy as np
 from face_makeup.constants import (
     EYE_IRIS_LEFT_INDICES,
     EYE_IRIS_RIGHT_INDICES,
-    LEFT_EYE_IDX,
-    RIGHT_EYE_IDX,
+    LEFT_EYE_INDICES,
+    RIGHT_EYE_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.blend.blend_utils import apply_hue_shift_blend, standard_blend
@@ -18,8 +18,8 @@ from face_makeup.core.types import EyeIrisParams
 
 
 _EYE_CONTOUR_MAP = {
-    "eyeiris_left": LEFT_EYE_IDX,
-    "eyeiris_right": RIGHT_EYE_IDX,
+    "eyeiris_left": LEFT_EYE_INDICES,
+    "eyeiris_right": RIGHT_EYE_INDICES,
 }
 
 

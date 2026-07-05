@@ -8,6 +8,7 @@ from face_makeup.core.passes.foundation import (
     FoundationMaskStrategy,
     FoundationBlendStrategy,
     FoundationPass,
+    blur_kernel_from_strength,
 )
 from face_makeup.core.types import PartParams, ColorParams
 
@@ -213,6 +214,18 @@ class TestFoundationPass:
         assert "eyelid_right" in p.exclusion_passes
         assert "lips" in p.exclusion_passes
 
+    def test_excludes_eyelid_edge_and_all_zones(self, params):
+        """Regression guard: exclusion_passes must cover every zone/side
+        combination Face._eyelid_part() can produce for both 'eyelid' and
+        'eyelid_edge', not just the zone='full' eyelid pass_types.
+        """
+        p = FoundationPass(params=params)
+        for base in ("eyelid", "eyelid_edge"):
+            for side in ("left", "right"):
+                assert f"{base}_{side}" in p.exclusion_passes
+                for zone in ("outer", "center", "inner"):
+                    assert f"{base}_{zone}_{side}" in p.exclusion_passes
+
     def test_has_mask_strategy(self, params):
         p = FoundationPass(params=params)
         assert isinstance(p.mask_strategy, FoundationMaskStrategy)
@@ -224,3 +237,37 @@ class TestFoundationPass:
     def test_custom_blur_kernel(self, params):
         p = FoundationPass(params=params, blur_kernel=(15, 15))
         assert p.mask_strategy._blur_kernel == (15, 15)
+
+    def test_default_blur_kernel_matches_default_strength(self, params):
+        """params.blur_strength defaults to 0.5, reproducing the original (31, 31) kernel."""
+        p = FoundationPass(params=params)
+        assert p.mask_strategy._blur_kernel == (31, 31)
+
+    def test_blur_kernel_derived_from_params_blur_strength(self):
+        """params.blur_strength drives the mask blur kernel (previously ignored)."""
+        low = PartParams(
+            color_params=ColorParams(target_rgb=(200, 200, 200)),
+            opacity=0.3, blur_strength=0.0,
+        )
+        high = PartParams(
+            color_params=ColorParams(target_rgb=(200, 200, 200)),
+            opacity=0.3, blur_strength=1.0,
+        )
+        p_low = FoundationPass(params=low)
+        p_high = FoundationPass(params=high)
+        assert p_low.mask_strategy._blur_kernel[0] < p_high.mask_strategy._blur_kernel[0]
+
+
+class TestBlurKernelFromStrength:
+    """Tests for the blur_strength -> Gaussian kernel size mapping."""
+
+    def test_default_strength_matches_original_fixed_kernel(self):
+        assert blur_kernel_from_strength(0.5) == (31, 31)
+
+    def test_zero_strength_is_minimal_kernel(self):
+        assert blur_kernel_from_strength(0.0) == (1, 1)
+
+    def test_kernel_size_is_always_odd(self):
+        for strength in (0.0, 0.1, 0.3, 0.5, 0.7, 1.0):
+            size, _ = blur_kernel_from_strength(strength)
+            assert size % 2 == 1

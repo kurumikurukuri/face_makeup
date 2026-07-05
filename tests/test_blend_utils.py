@@ -112,12 +112,25 @@ class TestApplyTargetColor:
         assert center_pixel[0] > center_pixel[1]
         assert center_pixel[0] > center_pixel[2]
 
-    def test_achromatic_darkens(self, solid_gray, center_mask):
-        """Achromatic target (S≈0) triggers darken path."""
+    def test_achromatic_white_target_lightens(self, solid_gray, center_mask):
+        """Achromatic white target (S≈0) lerps toward its own V, lightening."""
+        rgb_f = solid_gray.astype(np.float32) / 255.0
+        result = apply_target_color(rgb_f, center_mask, (255, 255, 255), 1.0)
+        center_val = result[50, 50].mean()
+        assert center_val > rgb_f[50, 50].mean()
+
+    def test_achromatic_black_target_darkens(self, solid_gray, center_mask):
+        """Achromatic black target (S≈0) lerps toward its own V, darkening."""
+        rgb_f = solid_gray.astype(np.float32) / 255.0
+        result = apply_target_color(rgb_f, center_mask, (0, 0, 0), 1.0)
+        center_val = result[50, 50].mean()
+        assert center_val < rgb_f[50, 50].mean()
+
+    def test_achromatic_matching_gray_unchanged(self, solid_gray, center_mask):
+        """Achromatic target matching source gray leaves it unchanged (not darkened)."""
         rgb_f = solid_gray.astype(np.float32) / 255.0
         result = apply_target_color(rgb_f, center_mask, (128, 128, 128), 1.0)
-        center_val = result[50, 50].mean()
-        assert center_val < 0.5
+        assert np.isclose(result[50, 50].mean(), rgb_f[50, 50].mean(), atol=1e-2)
 
     def test_zero_opacity_unchanged(self, solid_gray, center_mask):
         """opacity=0 returns input unchanged."""
@@ -131,10 +144,10 @@ class TestApplyTargetColor:
         result = apply_target_color(rgb_f, center_mask, (255, 0, 0), 1.0)
         assert np.allclose(result[0, 0], rgb_f[0, 0])
 
-    def test_achromatic_target_triggers_darken(self, solid_gray, center_mask):
-        """Target S < 0.05 → achromatic darken path."""
+    def test_achromatic_target_triggers_vlerp_path(self, solid_gray, center_mask):
+        """Target S < 0.05 → achromatic V-lerp path (darkens toward black target)."""
         rgb_f = solid_gray.astype(np.float32) / 255.0
-        result = apply_target_color(rgb_f, center_mask, (128, 128, 128), 0.5)
+        result = apply_target_color(rgb_f, center_mask, (0, 0, 0), 0.5)
         center_before = rgb_f[50, 50].mean()
         center_after = result[50, 50].mean()
         assert center_after < center_before
@@ -207,9 +220,17 @@ class TestApplyHueShiftBlend:
         result = apply_hue_shift_blend(solid_gray, center_mask, (255, 0, 0), 0.0, 0.0)
         assert np.array_equal(result, solid_gray)
 
-    def test_achromatic_target_darkens(self, solid_gray, center_mask):
-        result = apply_hue_shift_blend(solid_gray, center_mask, (128, 128, 128), 1.0, 0.0)
+    def test_achromatic_black_target_darkens(self, solid_gray, center_mask):
+        result = apply_hue_shift_blend(solid_gray, center_mask, (0, 0, 0), 1.0, 0.0)
         assert result[50, 50].mean() < solid_gray[50, 50].mean()
+
+    def test_achromatic_white_target_lightens(self, solid_gray, center_mask):
+        result = apply_hue_shift_blend(solid_gray, center_mask, (255, 255, 255), 1.0, 0.0)
+        assert result[50, 50].mean() > solid_gray[50, 50].mean()
+
+    def test_achromatic_matching_gray_unchanged(self, solid_gray, center_mask):
+        result = apply_hue_shift_blend(solid_gray, center_mask, (128, 128, 128), 1.0, 0.0)
+        assert abs(int(result[50, 50].mean()) - int(solid_gray[50, 50].mean())) <= 1
 
     def test_unmasked_region_unchanged(self, solid_gray, center_mask):
         result = apply_hue_shift_blend(solid_gray, center_mask, (255, 0, 0), 1.0, 0.0)

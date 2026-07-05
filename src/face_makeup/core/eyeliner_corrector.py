@@ -313,7 +313,7 @@ class EyelinerCorrector:
 
         all_corrected = []
         cache_entries: List[dict] = []
-        cache_key = (part_name, id(eyeliner))
+        cache_key = (part_name, id(eyeliner), eyeliner.ctypes.data)
         for _key, indices in correction_map.items():
             for idx in indices:
                 if idx in EDGE_LANDMARK_DIRECTIONS:
@@ -382,7 +382,7 @@ class EyelinerCorrector:
 
         # Reuse debug entries cached by the most recent correct_points call
         # for this part (same source image = same render pass).
-        cache_key = (part_name, id(eyeliner))
+        cache_key = (part_name, id(eyeliner), eyeliner.ctypes.data)
         cached = self._correction_cache.get(cache_key)
         if cached is not None and cached['img_ref']() is eyeliner:
             return [dict(entry, side=side, eyeliner=eyeliner) for entry in cached['entries']]

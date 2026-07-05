@@ -13,6 +13,9 @@ from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.blend.blend_utils import standard_blend
 from face_makeup.core.types import LipsParams
 
+# OpenCV sub-pixel precision bits for anti-aliased fillPoly.
+_SUBPIXEL_BITS = 4
+
 
 class LipMaskStrategy(MaskStrategy):
     """Polygon masks for upper and lower lip, combined via bitwise OR."""
@@ -28,7 +31,7 @@ class LipMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        shift = 4
+        shift = _SUBPIXEL_BITS
         scale = 1 << shift
 
         for indices in LIPS_INDICES.values():

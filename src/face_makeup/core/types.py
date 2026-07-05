@@ -154,17 +154,21 @@ class TearBagHighlightParams(PartParams):
 
 
 @dataclass
-class TearBagShadowParams(EyeLinerParams):
+class TearBagShadowParams(PartParams):
     """Parameters for tear bag shadow.
 
     Attributes:
+        thickness: Line thickness in pixels (>= 1).
         size: Shadow line position 0.0-1.0. Mirrors TearBagHighlightParams.size
               so highlight and shadow track together.
     """
+    thickness: int = 2
     size: float = 1.0
 
     def __post_init__(self):
         super().__post_init__()
+        if not isinstance(self.thickness, int) or self.thickness < 1:
+            raise ValueError(f"thickness must be a positive integer, got {self.thickness}")
         if not isinstance(self.size, (int, float)) or not 0.0 <= self.size <= 1.0:
             raise ValueError(f"size must be 0.0-1.0, got {self.size}")
 

@@ -16,6 +16,8 @@ from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.blend.blend_utils import standard_blend
 from face_makeup.core.types import EyeLinerParams
 
+# OpenCV sub-pixel precision bits for anti-aliased polylines.
+_SUBPIXEL_BITS = 4
 
 _INDICES_MAP = {
     "eyeliner_left": EYELINER_LEFT_INDICES,
@@ -56,7 +58,7 @@ class EyelinerMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
         thickness = max(1, min(h, w) // 512)
-        shift = 4
+        shift = _SUBPIXEL_BITS
         scale = 1 << shift
 
         for indices in self._indices_dict.values():
@@ -80,7 +82,7 @@ class EyelinerMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
         thickness = max(1, min(h, w) // 512)
-        shift = 4
+        shift = _SUBPIXEL_BITS
         scale = 1 << shift
 
         corrected_flat = self._corrector.correct_points(

@@ -68,8 +68,8 @@ class ImageContext:
 
     @property
     def faces(self) -> List[Face]:
-        """Get list of detected faces."""
-        return self._faces
+        """Get list of detected faces (shallow copy)."""
+        return list(self._faces)
 
     @property
     def face_count(self) -> int:
@@ -90,6 +90,8 @@ class ImageContext:
             IndexError: If index out of range.
         """
         if index < 0 or index >= len(self._faces):
+            if not self._faces:
+                raise IndexError(f"Face index {index} out of range (no faces detected)")
             raise IndexError(f"Face index {index} out of range (0-{len(self._faces) - 1})")
         return self._faces[index]
 

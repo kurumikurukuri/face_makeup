@@ -36,10 +36,12 @@ from face_makeup.core.types import TearBagHighlightParams, TearBagShadowParams
 if TYPE_CHECKING:
     from face_makeup.core.types import FaceLandmarks
 
+# OpenCV sub-pixel precision bits for anti-aliased fillPoly / polylines.
+_SUBPIXEL_BITS = 4
 
 # Maps part_name → (ridge_indices, lash_indices).
-# ridge: inner→outer, 9 pts.
-# lash:  outer→inner, 9 pts (EYELINER_LOWER order).
+# ridge: inner→outer, 7 pts.
+# lash:  outer→inner, 7 pts (EYELINER_LOWER order).
 _RIDGE_LASH_MAP: dict[str, tuple[list[int], list[int]]] = {
     "tear_bag_highlight_left":  (list(TEAR_BAG_SHADOW_LEFT_INDICES),  list(TEAR_BAG_ROOT_LEFT_INDICES)),
     "tear_bag_highlight_right": (list(TEAR_BAG_SHADOW_RIGHT_INDICES), list(TEAR_BAG_ROOT_RIGHT_INDICES)),
@@ -135,7 +137,7 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
         if len(poly) < 3:
             return mask
 
-        shift = 4
+        shift = _SUBPIXEL_BITS
         cv2.fillPoly(mask, [_shifted_points(poly, shift)], 255, shift=shift)
         return mask
 
@@ -174,7 +176,7 @@ class TearBagShadowMaskStrategy(MaskStrategy):
             return mask
 
         thickness = max(1, min(h, w) // 512)
-        shift = 4
+        shift = _SUBPIXEL_BITS
         cv2.polylines(
             mask, [_shifted_points(outer_pts, shift)], isClosed=False,
             color=255, thickness=thickness,

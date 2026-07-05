@@ -33,6 +33,9 @@ from face_makeup.core.types import EyeShadowParams
 if TYPE_CHECKING:
     from face_makeup.core.types import FaceLandmarks
 
+# OpenCV sub-pixel precision bits for anti-aliased fillPoly.
+_SUBPIXEL_BITS = 4
+
 
 class EyeShadowMaskStrategy(MaskStrategy):
     """Polygon mask from eyelid landmark indices."""
@@ -55,7 +58,7 @@ class EyeShadowMaskStrategy(MaskStrategy):
         if len(points) < 3:
             return mask
 
-        shift = 4
+        shift = _SUBPIXEL_BITS
         scale = 1 << shift
         points_shifted = (points * scale).astype(np.int32)
         cv2.fillPoly(mask, [points_shifted], 255, shift=shift)

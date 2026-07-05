@@ -164,6 +164,19 @@ class ProcessorConfig:
     refine_landmarks: bool = True
     max_num_faces: int = 10
 
+    def __post_init__(self):
+        """Validate parameter bounds."""
+        if not isinstance(self.min_detection_confidence, (int, float)) or not 0.0 <= self.min_detection_confidence <= 1.0:
+            raise ValueError(
+                f"min_detection_confidence must be 0.0-1.0, got {self.min_detection_confidence}"
+            )
+        if not isinstance(self.min_tracking_confidence, (int, float)) or not 0.0 <= self.min_tracking_confidence <= 1.0:
+            raise ValueError(
+                f"min_tracking_confidence must be 0.0-1.0, got {self.min_tracking_confidence}"
+            )
+        if not isinstance(self.max_num_faces, int) or self.max_num_faces < 1:
+            raise ValueError(f"max_num_faces must be a positive integer, got {self.max_num_faces}")
+
 
 class MakeupProcessor:
     """
@@ -328,9 +341,16 @@ class MakeupProcessor:
             ) from e
         # Reject decompression bombs before Pillow decodes pixel data, rather
         # than relying solely on the post-decode check in _validate_image.
+        # Image.MAX_IMAGE_PIXELS is a process-wide PIL setting, not scoped to
+        # this call, so it's restored afterward to avoid capping unrelated
+        # PIL usage elsewhere in the same process.
+        previous_max_pixels = Image.MAX_IMAGE_PIXELS
         Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS
-        with Image.open(path) as pil_image:
-            image_np = np.array(pil_image.convert("RGB"))
+        try:
+            with Image.open(path) as pil_image:
+                image_np = np.array(pil_image.convert("RGB"))
+        finally:
+            Image.MAX_IMAGE_PIXELS = previous_max_pixels
         return self.open(image_np)
     
     @staticmethod
