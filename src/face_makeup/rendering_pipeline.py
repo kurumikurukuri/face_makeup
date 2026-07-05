@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, List
+from uuid import uuid4
 from weakref import WeakKeyDictionary
 
 import numpy as np
@@ -75,7 +76,8 @@ class RenderingPipeline:
             logger.debug("Returning cached render result")
             return self._cache[context].copy()
 
-        session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        session_id = f"{ts}_{uuid4().hex[:8]}"
 
         # Create renderer with debug visualizer if needed
         visualizer = None

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional
+from uuid import uuid4
 
 import cv2
 import numpy as np
@@ -259,5 +260,6 @@ class Renderer:
 
     @staticmethod
     def _generate_session_id() -> str:
-        """Generate a timestamp-based session ID."""
-        return datetime.now().strftime("%Y%m%d_%H%M%S")
+        """Generate a unique session ID with timestamp and random component."""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"{ts}_{uuid4().hex[:8]}"

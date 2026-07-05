@@ -116,6 +116,7 @@ class DebugVisualizer:
             session_id: Session identifier for filename.
             mask_type: Type of mask ('hard' or 'soft').
         """
+        session_id = _sanitize_session_id(session_id)
         for part, mask in masks.items():
             mask_vis = mask if mask.dtype == np.uint8 else (mask * 255).astype(np.uint8)
             heatmap = cv2.applyColorMap(mask_vis, cv2.COLORMAP_JET)
@@ -151,6 +152,7 @@ class DebugVisualizer:
         self._save_image(result, session_id, "5_result")
 
         # Save difference heatmap
+        session_id = _sanitize_session_id(session_id)
         diff = cv2.absdiff(original, result)
         diff_gray = cv2.cvtColor(diff, cv2.COLOR_RGB2GRAY)
         heatmap = cv2.applyColorMap(diff_gray, cv2.COLORMAP_HOT)

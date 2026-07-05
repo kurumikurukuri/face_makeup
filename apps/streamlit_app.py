@@ -60,6 +60,12 @@ def _on_separate_colors_change():
 
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+# Cap decoded pixel count to block decompression-bomb DoS — a modestly sized
+# compressed upload can expand to hundreds of MB of RGB. ~24M px ≈ 5000x5000.
+MAX_IMAGE_PIXELS = 24_000_000
+# PIL raises DecompressionBombError above this; aligned with the processor-side
+# _MAX_IMAGE_PIXELS limit so oversized uploads are rejected at decode time.
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
 def resolve_safe_url(url: str) -> tuple:
@@ -120,7 +126,13 @@ def fetch_image_safe(url: str) -> io.BytesIO:
         timeout=10,
         stream=True,
         verify=True,
+        allow_redirects=False,
     )
+    if 300 <= response.status_code < 400:
+        response.close()
+        raise ValueError(
+            "リダイレクトする URL は許可されていません。直接の画像 URL を指定してください。"
+        )
     response.raise_for_status()
 
     # Read in chunks with size limit
@@ -677,6 +689,13 @@ image_source = uploaded_file or camera_image or url_image
 if image_source is not None:
     try:
         pil_image = Image.open(image_source)
+        # Reject oversized images early — a clear dimension cap is friendlier
+        # than letting the decompression-bomb guard fire mid-pipeline.
+        if pil_image.width > 4096 or pil_image.height > 4096:
+            raise ValueError(
+                f"画像が大きすぎます（{pil_image.width}x{pil_image.height}）。"
+                f"各辺 4096px 以下にしてください。"
+            )
         pil_image = ImageOps.exif_transpose(pil_image)
         pil_image = pil_image.convert("RGB")
         image_np = np.array(pil_image)

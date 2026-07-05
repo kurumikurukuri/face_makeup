@@ -5,6 +5,7 @@ import pytest
 import numpy as np
 import cv2
 import os
+from pathlib import Path
 
 from face_makeup.processor import MakeupProcessor, ProcessorConfig
 
@@ -144,3 +145,69 @@ class TestProcessorReuse:
                 continue
 
         assert success_count > 0, "No images processed successfully"
+
+
+class TestModelChecksum:
+    """Tests for hair model SHA256 verification."""
+
+    def test_recorded_digest_is_well_formed(self):
+        """The pinned digest is a 64-char lowercase hex SHA256 string."""
+        from face_makeup.processor import _HAIR_MODEL_SHA256
+
+        assert len(_HAIR_MODEL_SHA256) == 64
+        int(_HAIR_MODEL_SHA256, 16)  # raises ValueError if not hex
+        assert _HAIR_MODEL_SHA256 == _HAIR_MODEL_SHA256.lower()
+
+    def test_verify_checksum_valid_model(self):
+        """The bundled model verifies against its recorded digest."""
+        from face_makeup.processor import _verify_model_checksum
+
+        model_path = Path(__file__).parent.parent / "models" / "hair_segmenter.tflite"
+        if not model_path.exists():
+            pytest.skip("hair model not present locally")
+        assert _verify_model_checksum(model_path) is True
+
+    def test_verify_checksum_rejects_tampered_model(self, tmp_path):
+        """A modified file fails verification."""
+        from face_makeup.processor import _verify_model_checksum
+
+        fake = tmp_path / "hair_segmenter.tflite"
+        fake.write_bytes(b"not a real model - tampered payload")
+        assert _verify_model_checksum(fake) is False
+
+    def test_verify_checksum_missing_file(self, tmp_path):
+        """A non-existent file fails verification without raising."""
+        from face_makeup.processor import _verify_model_checksum
+
+        missing = tmp_path / "does_not_exist.tflite"
+        assert _verify_model_checksum(missing) is False
+
+
+class TestImageSizeLimit:
+    """Tests for the decompression-bomb pixel cap in _validate_image."""
+
+    def test_oversized_image_rejected(self, monkeypatch):
+        """Images exceeding _MAX_IMAGE_PIXELS are rejected (DoS guard)."""
+        from face_makeup import processor as proc_module
+
+        monkeypatch.setattr(proc_module, "_MAX_IMAGE_PIXELS", 100)
+        image = np.zeros((20, 20, 3), dtype=np.uint8)  # 400 px > 100
+        with pytest.raises(ValueError, match="Image too large"):
+            proc_module.MakeupProcessor._validate_image(image)
+
+    def test_valid_size_accepted(self, monkeypatch):
+        """Images under the cap pass size validation (no size error)."""
+        from face_makeup import processor as proc_module
+
+        monkeypatch.setattr(proc_module, "_MAX_IMAGE_PIXELS", 100)
+        image = np.zeros((5, 5, 3), dtype=np.uint8)  # 25 px < 100
+        # Should not raise.
+        proc_module.MakeupProcessor._validate_image(image)
+
+    def test_boundary_exactly_at_cap_accepted(self, monkeypatch):
+        """An image whose pixel count equals the cap is accepted (<=)."""
+        from face_makeup import processor as proc_module
+
+        monkeypatch.setattr(proc_module, "_MAX_IMAGE_PIXELS", 100)
+        image = np.zeros((10, 10, 3), dtype=np.uint8)  # exactly 100 px
+        proc_module.MakeupProcessor._validate_image(image)

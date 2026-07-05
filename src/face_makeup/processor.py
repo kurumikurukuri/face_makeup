@@ -6,6 +6,7 @@ Note: This class is NOT thread-safe. Create separate instances for concurrent us
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from dataclasses import dataclass
@@ -28,6 +29,44 @@ _HAIR_MODEL_FILENAME = "hair_segmenter.tflite"
 _HAIR_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-assets/hair_segmentation.tflite"
 )
+# Known-good SHA256 of the model file. Verified at download time and on every
+# load to defend against CDN compromise, proxy injection, or local tampering
+# that could substitute a malicious .tflite (cv2.dnn reads serialized weights,
+# so a tampered model is a parser-exploit surface).
+_HAIR_MODEL_SHA256 = (
+    "0bec40bc9ba97c4143f3d4225a935014abffea37c1f3766ae32aba3f2748e711"
+)
+
+
+def _verify_model_checksum(model_path: Path) -> bool:
+    """Verify the SHA256 checksum of the hair segmentation model.
+
+    Defends against CDN compromise, proxy injection, or local tampering that
+    could substitute a malicious ``.tflite``. The digest is the fixed
+    known-good value recorded when the model was first vetted.
+
+    Args:
+        model_path: Path to the model file to verify.
+
+    Returns:
+        True if the file matches ``_HAIR_MODEL_SHA256``, False otherwise
+        (including when the file does not exist).
+    """
+    if not model_path.exists():
+        return False
+    digest = hashlib.sha256()
+    with open(model_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != _HAIR_MODEL_SHA256:
+        logger.warning(
+            "Hair model checksum mismatch: expected %s, got %s",
+            _HAIR_MODEL_SHA256,
+            actual,
+        )
+        return False
+    return True
 
 
 def _download_hair_model(model_path: Path) -> bool:
@@ -69,10 +108,20 @@ def _download_hair_model(model_path: Path) -> bool:
                     downloaded += len(chunk)
                     if total_bytes:
                         pct = downloaded * 100 // total_bytes
-                        if pct % 20 < 5 and downloaded % (total_bytes // 5) < 8192:
+                        log_interval = max(total_bytes // 5, 1)
+                        if pct % 20 < 5 and downloaded % log_interval < 8192:
                             logger.info(
                                 "  %d%% (%d / %d bytes)", pct, downloaded, total_bytes
                             )
+
+            if not _verify_model_checksum(tmp_path):
+                logger.warning(
+                    "Downloaded %s checksum mismatch — possible tampering. "
+                    "File discarded; hair exclusion will be skipped.",
+                    _HAIR_MODEL_FILENAME,
+                )
+                tmp_path.unlink(missing_ok=True)
+                return False
 
             os.replace(tmp_path, model_path)
             logger.info(
@@ -99,6 +148,12 @@ def _download_hair_model(model_path: Path) -> bool:
         except OSError:
             pass
         return False
+
+
+# Maximum decoded pixel count accepted by open()/open_path(). Guards against
+# decompression-bomb DoS — a modest compressed upload can expand to hundreds
+# of MB of RGB. ~24M px (e.g. 6000x4000) is ample for face photos.
+_MAX_IMAGE_PIXELS = 24_000_000
 
 
 @dataclass
@@ -151,6 +206,15 @@ class MakeupProcessor:
             model_path = model_dir / _HAIR_MODEL_FILENAME
 
             if not model_path.exists():
+                if not _download_hair_model(model_path):
+                    pass  # Download failed — warning already logged
+            elif not _verify_model_checksum(model_path):
+                logger.warning(
+                    "Existing %s checksum mismatch — possible tampering. "
+                    "Re-downloading.",
+                    _HAIR_MODEL_FILENAME,
+                )
+                model_path.unlink(missing_ok=True)
                 if not _download_hair_model(model_path):
                     pass  # Download failed — warning already logged
 
@@ -262,8 +326,11 @@ class MakeupProcessor:
                 "Pillow is required for open_path(). "
                 "Install it with: pip install Pillow"
             ) from e
-        pil_image = Image.open(path).convert("RGB")
-        image_np = np.array(pil_image)
+        # Reject decompression bombs before Pillow decodes pixel data, rather
+        # than relying solely on the post-decode check in _validate_image.
+        Image.MAX_IMAGE_PIXELS = _MAX_IMAGE_PIXELS
+        with Image.open(path) as pil_image:
+            image_np = np.array(pil_image.convert("RGB"))
         return self.open(image_np)
     
     @staticmethod
@@ -277,3 +344,11 @@ class MakeupProcessor:
 
         if len(image.shape) != 3 or image.shape[2] != 3:
             raise ValueError(f"Image shape must be (H, W, 3): {image.shape}")
+
+        height, width = int(image.shape[0]), int(image.shape[1])
+        num_pixels = height * width
+        if num_pixels > _MAX_IMAGE_PIXELS:
+            raise ValueError(
+                f"Image too large: {width}x{height} ({num_pixels} px) "
+                f"exceeds {_MAX_IMAGE_PIXELS} pixel limit"
+            )

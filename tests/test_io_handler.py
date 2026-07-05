@@ -118,7 +118,40 @@ class TestIOHandlerSaveValidation:
     def test_save_rejects_missing_parent_directory(self, handler, test_rgb_image):
         """Test that save raises FileNotFoundError for missing parent dir."""
         with pytest.raises(FileNotFoundError, match="Parent directory does not exist"):
-            handler.save(test_rgb_image, "/nonexistent_dir_xyz/output.png")
+            handler.save(test_rgb_image, "nonexistent_subdir/output.png")
+
+
+class TestIOHandlerPathTraversal:
+    """Tests for output_base containment (path traversal protection)."""
+
+    def test_save_rejects_relative_traversal(self, test_rgb_image):
+        """Relative path escaping output_base via ../ is rejected."""
+        with tempfile.TemporaryDirectory() as tmp:
+            handler = IOHandler(output_base=tmp)
+            with pytest.raises(ValueError, match="escapes output directory"):
+                handler.save(test_rgb_image, "../escape.png")
+
+    def test_save_relative_inside_output_base_succeeds(self, test_rgb_image):
+        """A relative path inside output_base is written there."""
+        with tempfile.TemporaryDirectory() as tmp:
+            handler = IOHandler(output_base=tmp)
+            handler.save(test_rgb_image, "out.png")
+            assert os.path.isfile(os.path.join(tmp, "out.png"))
+
+    def test_save_absolute_path_is_allowed(self, test_rgb_image):
+        """Absolute paths are honoured as explicit intent (not contained)."""
+        with tempfile.TemporaryDirectory() as output_base:
+            # Create an absolute target in the system temp area, outside the
+            # output_base directory.
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as abs_file:
+                abs_path = abs_file.name
+        try:
+            handler = IOHandler(output_base=output_base)
+            handler.save(test_rgb_image, abs_path)
+            assert os.path.isfile(abs_path)
+        finally:
+            if os.path.exists(abs_path):
+                os.unlink(abs_path)
 
 
 class TestIOHandlerShow:

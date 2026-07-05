@@ -23,6 +23,11 @@ class IOHandler:
     Provides methods for saving and displaying images,
     handling RGB to BGR conversion for OpenCV compatibility.
 
+    Relative save paths are validated to stay within *output_base* to
+    prevent path traversal. Absolute paths are honoured as explicit user
+    intent — callers embedding this library in a service should only accept
+    relative paths from untrusted input.
+
     Example:
         >>> handler = IOHandler()
         >>> result_image = ctx.render()  # RGB image
@@ -30,24 +35,59 @@ class IOHandler:
         >>> handler.show(result_image)
     """
 
-    def _validate_save_path(self, path: str) -> Path:
+    def __init__(self, output_base: str | Path = ".") -> None:
         """
-        Validate output file path.
+        Initialize I/O handler.
 
         Args:
-            path: Output file path.
+            output_base: Base directory for output files. All save paths are
+                resolved relative to this directory and validated to stay
+                within it. Defaults to the current working directory.
+        """
+        self._output_base = Path(output_base).resolve()
+        logger.debug("IOHandler initialized (output_base=%s)", self._output_base)
+
+    @property
+    def output_base(self) -> Path:
+        """Return the resolved output base directory."""
+        return self._output_base
+
+    def _validate_save_path(self, path: str) -> Path:
+        """
+        Validate output file path and resolve it within *output_base*.
+
+        Args:
+            path: Output file path (relative or absolute).
 
         Returns:
-            Resolved Path object.
+            Resolved Path object. For relative inputs, guaranteed to be
+            within *output_base*; absolute inputs are returned as-is.
 
         Raises:
-            ValueError: If path is empty or has unsupported extension.
+            ValueError: If path is empty, has an unsupported extension, or
+                escapes the output base directory.
             FileNotFoundError: If parent directory does not exist.
         """
         if not path or not path.strip():
             raise ValueError("Output path must not be empty")
 
-        resolved = Path(path).resolve()
+        # Resolve the path relative to output_base, then resolve any symlinks
+        # and ".." segments to get the canonical absolute path.
+        # When *path* is absolute, / operator returns *path* unchanged, so
+        # absolute paths bypass the output_base containment check (they
+        # represent explicit user intent).
+        resolved = (self._output_base / path).resolve()
+
+        # Prevent path traversal for relative paths: the resolved path must
+        # stay within output_base. Absolute paths are exempt — the caller
+        # has explicitly chosen the destination.
+        if not Path(path).is_absolute():
+            if not resolved.is_relative_to(self._output_base):
+                raise ValueError(
+                    f"Path escapes output directory: '{path}' "
+                    f"resolves to '{resolved}' which is outside "
+                    f"'{self._output_base}'"
+                )
 
         ext = resolved.suffix.lower()
         if ext not in _SUPPORTED_EXTENSIONS:
@@ -71,10 +111,11 @@ class IOHandler:
 
         Args:
             image: RGB image to save (H, W, 3).
-            path: Output file path.
+            path: Output file path relative to output_base.
 
         Raises:
-            ValueError: If path is empty or has unsupported extension.
+            ValueError: If path is empty, has an unsupported extension, or
+                escapes the output base directory.
             FileNotFoundError: If parent directory does not exist.
             OSError: If cv2.imwrite fails.
         """
