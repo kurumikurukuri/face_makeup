@@ -214,17 +214,16 @@ class TestFoundationPass:
         assert "eyelid_right" in p.exclusion_passes
         assert "lips" in p.exclusion_passes
 
-    def test_excludes_eyelid_edge_and_all_zones(self, params):
+    def test_excludes_all_eyelid_zones(self, params):
         """Regression guard: exclusion_passes must cover every zone/side
-        combination Face._eyelid_part() can produce for both 'eyelid' and
-        'eyelid_edge', not just the zone='full' eyelid pass_types.
+        combination Face._eyelid_part() can produce, not just the
+        zone='full' eyelid pass_types.
         """
         p = FoundationPass(params=params)
-        for base in ("eyelid", "eyelid_edge"):
-            for side in ("left", "right"):
-                assert f"{base}_{side}" in p.exclusion_passes
-                for zone in ("outer", "center", "inner"):
-                    assert f"{base}_{zone}_{side}" in p.exclusion_passes
+        for side in ("left", "right"):
+            assert f"eyelid_{side}" in p.exclusion_passes
+            for zone in ("outer", "center", "inner"):
+                assert f"eyelid_{zone}_{side}" in p.exclusion_passes
 
     def test_has_mask_strategy(self, params):
         p = FoundationPass(params=params)

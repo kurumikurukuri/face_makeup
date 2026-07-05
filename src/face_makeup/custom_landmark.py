@@ -44,22 +44,6 @@ CUSTOM_LANDMARK_DEFS: list[CustomLandmarkDef] = [
     CustomLandmarkDef(1103, "mid", (15, 14)),
     CustomLandmarkDef(1104, "mid", (316, 317)),
     CustomLandmarkDef(1105, "mid", (403, 402)),
-    # Eyelid left — midpoints
-    CustomLandmarkDef(1201, "mid", (247, 33)),
-    CustomLandmarkDef(1202, "mid", (30, 161)),
-    CustomLandmarkDef(1203, "mid", (29, 160)),
-    CustomLandmarkDef(1204, "mid", (27, 159)),
-    CustomLandmarkDef(1205, "mid", (28, 158)),
-    CustomLandmarkDef(1206, "mid", (56, 157)),
-    CustomLandmarkDef(1207, "mid", (190, 243)),
-    # Eyelid right — midpoints
-    CustomLandmarkDef(1301, "mid", (467, 263)),
-    CustomLandmarkDef(1302, "mid", (260, 388)),
-    CustomLandmarkDef(1303, "mid", (259, 387)),
-    CustomLandmarkDef(1304, "mid", (257, 386)),
-    CustomLandmarkDef(1305, "mid", (258, 385)),
-    CustomLandmarkDef(1306, "mid", (286, 384)),
-    CustomLandmarkDef(1307, "mid", (414, 463)),
     # Eyeliner edge — direction vectors (upper left)
     CustomLandmarkDef(1401, "edge", (173, 190)),
     CustomLandmarkDef(1402, "edge", (157, 56)),

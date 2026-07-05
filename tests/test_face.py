@@ -341,10 +341,6 @@ class TestBlurStrengthValidation:
         with pytest.raises(ValueError, match="blur_strength must be"):
             face.eyelid(color=(180, 130, 150), blur_strength=-1.0)
 
-    def test_eyelid_edge_invalid_blur_strength(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.eyelid_edge(color=(245, 41, 41), blur_strength=1.1)
-
     def test_eyeliner_invalid_blur_strength(self, face):
         with pytest.raises(ValueError, match="blur_strength must be"):
             face.eyeliner(color=(0, 0, 0), blur_strength=5.0)
@@ -508,7 +504,7 @@ class TestEyeLinerParamsValidation:
 
 
 class TestGlitterValidation:
-    """Tests for glitter parameter validation on eyelid() and eyelid_edge()."""
+    """Tests for glitter parameter validation on eyelid()."""
 
     def test_eyelid_glitter_too_high(self, face):
         with pytest.raises(ValueError, match="glitter must be"):
@@ -521,18 +517,6 @@ class TestGlitterValidation:
     def test_eyelid_glitter_string(self, face):
         with pytest.raises(ValueError, match="glitter must be"):
             face.eyelid(color=(180, 130, 150), glitter="0.5")
-
-    def test_eyelid_edge_glitter_too_high(self, face):
-        with pytest.raises(ValueError, match="glitter must be"):
-            face.eyelid_edge(color=(245, 41, 41), glitter=1.5)
-
-    def test_eyelid_edge_glitter_negative(self, face):
-        with pytest.raises(ValueError, match="glitter must be"):
-            face.eyelid_edge(color=(245, 41, 41), glitter=-0.1)
-
-    def test_eyelid_edge_glitter_string(self, face):
-        with pytest.raises(ValueError, match="glitter must be"):
-            face.eyelid_edge(color=(245, 41, 41), glitter="0.5")
 
     def test_valid_glitter_boundary_zero(self, face):
         face.eyelid(color=(180, 130, 150), glitter=0.0, side='left')
@@ -557,12 +541,6 @@ class TestGlitterValidation:
         face.eyelid(color=(180, 130, 150), glitter=0.7)
         params = face.makeup_passes[0].params
         assert params.glitter == 0.7
-
-    def test_eyelid_edge_glitter_propagates_to_params(self, face):
-        """Verify glitter value reaches EyeShadowParams via eyelid_edge."""
-        face.eyelid_edge(color=(245, 41, 41), glitter=0.5)
-        params = face.makeup_passes[0].params
-        assert params.glitter == 0.5
 
 
 class TestEyeShadowParamsGlitterValidation:
@@ -673,7 +651,7 @@ class TestApplyGlitter:
 
 
 class TestEyelidZones:
-    """Tests for the `zone` argument on eyelid() and eyelid_edge()."""
+    """Tests for the `zone` argument on eyelid()."""
 
     @pytest.mark.parametrize("zone", ["outer", "center", "inner"])
     def test_eyelid_zone_both_sides(self, face, zone):
@@ -682,24 +660,11 @@ class TestEyelidZones:
         pass_types = [p.pass_type for p in face.makeup_passes]
         assert pass_types == [f"eyelid_{zone}_left", f"eyelid_{zone}_right"]
 
-    @pytest.mark.parametrize("zone", ["outer", "center", "inner"])
-    def test_eyelid_edge_zone_both_sides(self, face, zone):
-        """eyelid_edge(zone=...) builds edge-band zone part names for both sides."""
-        face.eyelid_edge(color=(245, 41, 41), zone=zone, side='both')
-        pass_types = [p.pass_type for p in face.makeup_passes]
-        assert pass_types == [f"eyelid_edge_{zone}_left", f"eyelid_edge_{zone}_right"]
-
     def test_eyelid_default_zone_is_full(self, face):
         """Default zone='full' preserves backward-compatible part names."""
         face.eyelid(color=(180, 130, 150), side='both')
         pass_types = [p.pass_type for p in face.makeup_passes]
         assert pass_types == ["eyelid_left", "eyelid_right"]
-
-    def test_eyelid_edge_default_zone_is_full(self, face):
-        """Default zone='full' on edge band preserves backward-compatible names."""
-        face.eyelid_edge(color=(245, 41, 41), side='both')
-        pass_types = [p.pass_type for p in face.makeup_passes]
-        assert pass_types == ["eyelid_edge_left", "eyelid_edge_right"]
 
     def test_eyelid_zone_single_side(self, face):
         """zone with side='left' adds exactly one zone pass."""
@@ -710,18 +675,13 @@ class TestEyelidZones:
         with pytest.raises(ValueError, match="zone must be one of"):
             face.eyelid(color=(180, 130, 150), zone='top')
 
-    def test_eyelid_edge_invalid_zone(self, face):
-        with pytest.raises(ValueError, match="zone must be one of"):
-            face.eyelid_edge(color=(245, 41, 41), zone='bottom')
-
     def test_zone_part_names_resolve_in_indices_map(self):
         """Every zone part name produced by the API exists in _INDICES_MAP."""
         from face_makeup.core.passes.eyeshadow import _INDICES_MAP
 
-        for base in ("eyelid", "eyelid_edge"):
-            for zone in ("outer", "center", "inner"):
-                for side in ("left", "right"):
-                    assert Face._eyelid_part(base, zone, side) in _INDICES_MAP
+        for zone in Face._VALID_ZONES:
+            for side in ("left", "right"):
+                assert Face._eyelid_part(zone, side) in _INDICES_MAP
 
     @pytest.mark.parametrize("side", ["left", "right"])
     def test_overall_zones_tile_full_eyelid(self, face, test_image, side):
@@ -731,22 +691,77 @@ class TestEyelidZones:
 
         coords = face.landmarks.points
         shape = test_image.shape[:2]
-        full_idx = getattr(C, f"EYELID_{side.upper()}_INDICES")
-        zone_idx = [
+        full_pair = (
+            getattr(C, f"EYELID_CREASE_{side.upper()}_INDICES"),
+            getattr(C, f"EYELID_LASH_{side.upper()}_INDICES"),
+        )
+        zone_pairs = [
             getattr(C, f"EYELID_OUTER_{side.upper()}_INDICES"),
             getattr(C, f"EYELID_CENTER_{side.upper()}_INDICES"),
             getattr(C, f"EYELID_INNER_{side.upper()}_INDICES"),
         ]
 
-        full = EyeShadowMaskStrategy(full_idx).generate(coords, shape) > 0
+        full = EyeShadowMaskStrategy(*full_pair).generate(coords, shape) > 0
         union = np.zeros(shape, dtype=bool)
-        for idx in zone_idx:
-            zone_mask = EyeShadowMaskStrategy(idx).generate(coords, shape) > 0
+        for crease, lash in zone_pairs:
+            zone_mask = EyeShadowMaskStrategy(crease, lash).generate(coords, shape) > 0
             assert zone_mask.sum() > 0, "zone mask must be non-empty"
             union |= zone_mask
 
         covered = (full & union).sum() / full.sum()
         assert covered > 0.9, f"zones cover only {covered:.1%} of full eyelid"
+
+
+class TestEyelidSize:
+    """Tests for the `size` argument on eyelid()."""
+
+    def test_size_propagates_to_params(self, face):
+        """Verify size value reaches EyeShadowParams."""
+        face.eyelid(color=(180, 130, 150), size=0.5)
+        params = face.makeup_passes[0].params
+        assert params.size == 0.5
+
+    def test_size_default_is_one(self, face):
+        """eyelid() with no size arg should default to 1.0."""
+        face.eyelid(color=(180, 130, 150))
+        params = face.makeup_passes[0].params
+        assert params.size == 1.0
+
+    def test_size_too_high(self, face):
+        with pytest.raises(ValueError, match="size must be"):
+            face.eyelid(color=(180, 130, 150), size=1.5)
+
+    def test_size_negative(self, face):
+        with pytest.raises(ValueError, match="size must be"):
+            face.eyelid(color=(180, 130, 150), size=-0.1)
+
+    def test_size_reduces_mask_area(self, face, test_image):
+        """Smaller size produces a smaller mask on real landmarks."""
+        from face_makeup.core.passes.eyeshadow import EyeShadowMaskStrategy
+        from face_makeup import constants as C
+
+        shape = test_image.shape[:2]
+        coords = face.landmarks.to_image_coords(shape[1], shape[0])
+        crease = C.EYELID_CREASE_LEFT_INDICES
+        lash = C.EYELID_LASH_LEFT_INDICES
+
+        area_small = np.count_nonzero(
+            EyeShadowMaskStrategy(crease, lash, size=0.3).generate(coords, shape)
+        )
+        area_full = np.count_nonzero(
+            EyeShadowMaskStrategy(crease, lash, size=1.0).generate(coords, shape)
+        )
+        assert 0 < area_small < area_full
+
+    def test_two_layers_stack(self, face):
+        """Calling eyelid() twice (different sizes) stacks four passes."""
+        face.eyelid(color=(224, 88, 140), size=1.0, side='both')
+        face.eyelid(color=(245, 41, 41), size=0.3, side='both')
+        passes = face.makeup_passes
+        assert [p.pass_type for p in passes] == [
+            "eyelid_left", "eyelid_right", "eyelid_left", "eyelid_right"
+        ]
+        assert [p.params.size for p in passes] == [1.0, 1.0, 0.3, 0.3]
 
 
 class TestTearBag:

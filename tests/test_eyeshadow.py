@@ -3,11 +3,13 @@ Tests for eye shadow pass: EyeShadowMaskStrategy and EyeShadowBlendStrategy.
 """
 from __future__ import annotations
 
+import cv2
 import numpy as np
 import pytest
 
 from face_makeup.constants import (
-    EYELID_EDGE_LEFT_INDICES,
+    EYELID_CREASE_LEFT_INDICES,
+    EYELID_LASH_LEFT_INDICES,
     EYELID_LEFT_INDICES,
 )
 from face_makeup.core.passes.eyeshadow import (
@@ -35,14 +37,28 @@ def center_mask():
     return mask
 
 
-def _build_eyelid_coords(indices: list[int]) -> np.ndarray:
-    """Build a coords array with a polygon shape for the given landmark indices."""
-    max_idx = max(indices)
+def _build_band_coords(crease: list[int], lash: list[int]) -> np.ndarray:
+    """Build coords with the crease on an upper line and the lash on a lower line.
+
+    Crease indices (outer→inner) run right-to-left on y=30; lash indices
+    (inner→outer) run left-to-right on y=60, so the closed polygon is a
+    horizontal band whose height scales with ``size``.
+    """
+    max_idx = max(max(crease), max(lash))
     coords = np.zeros((max_idx + 1, 2), dtype=np.float32)
-    for i, idx in enumerate(sorted(set(indices))):
-        angle = 2 * np.pi * i / len(set(indices))
-        coords[idx] = [50.0 + 20.0 * np.cos(angle), 50.0 + 10.0 * np.sin(angle)]
+    for idx, x in zip(crease, np.linspace(80.0, 20.0, len(crease))):
+        coords[idx] = [x, 30.0]
+    for idx, x in zip(lash, np.linspace(20.0, 80.0, len(lash))):
+        coords[idx] = [x, 60.0]
     return coords
+
+
+def _mask_area(size: float) -> int:
+    crease = list(EYELID_CREASE_LEFT_INDICES)
+    lash = list(EYELID_LASH_LEFT_INDICES)
+    coords = _build_band_coords(crease, lash)
+    strategy = EyeShadowMaskStrategy(crease, lash, size=size)
+    return int(np.count_nonzero(strategy.generate(coords, (100, 100))))
 
 
 # ── EyeShadowMaskStrategy ────────────────────────────────────────────────────
@@ -52,33 +68,103 @@ class TestEyeShadowMaskStrategy:
     """Tests for EyeShadowMaskStrategy mask generation."""
 
     def test_generate_with_valid_indices(self):
-        """Valid polygon indices produce non-zero mask."""
-        indices = list(EYELID_LEFT_INDICES)
-        coords = _build_eyelid_coords(indices)
-        strategy = EyeShadowMaskStrategy(indices)
+        """Valid crease/lash indices produce non-zero mask."""
+        crease = list(EYELID_CREASE_LEFT_INDICES)
+        lash = list(EYELID_LASH_LEFT_INDICES)
+        coords = _build_band_coords(crease, lash)
+        strategy = EyeShadowMaskStrategy(crease, lash)
         mask = strategy.generate(coords, (100, 100))
         assert mask.dtype == np.uint8
         assert mask.shape == (100, 100)
         assert mask.max() == 255
 
     def test_generate_fewer_than_three_points(self):
-        """Fewer than 3 points → zero mask."""
-        indices = [EYELID_LEFT_INDICES[0], EYELID_LEFT_INDICES[1]]
-        coords = np.zeros((max(indices) + 1, 2), dtype=np.float32)
-        coords[indices[0]] = [50.0, 50.0]
-        coords[indices[1]] = [55.0, 50.0]
-        strategy = EyeShadowMaskStrategy(indices)
+        """Fewer than 3 polygon points → zero mask."""
+        crease = [EYELID_CREASE_LEFT_INDICES[0]]
+        lash = [EYELID_LASH_LEFT_INDICES[0]]
+        coords = np.zeros((max(crease + lash) + 1, 2), dtype=np.float32)
+        coords[crease[0]] = [50.0, 30.0]
+        coords[lash[0]] = [50.0, 60.0]
+        strategy = EyeShadowMaskStrategy(crease, lash)
         mask = strategy.generate(coords, (100, 100))
         assert mask.max() == 0
 
-    def test_generate_eyelid_edge_indices(self):
-        """Eyelid edge indices also produce valid mask."""
-        indices = list(EYELID_EDGE_LEFT_INDICES)
-        coords = _build_eyelid_coords(indices)
-        strategy = EyeShadowMaskStrategy(indices)
-        mask = strategy.generate(coords, (100, 100))
-        assert mask.shape == (100, 100)
-        assert mask.max() == 255
+
+class TestEyeShadowMaskSize:
+    """Tests for the size parameter of EyeShadowMaskStrategy."""
+
+    def test_size_area_monotonic(self):
+        """Mask area grows monotonically with size."""
+        areas = [_mask_area(s) for s in (0.0, 0.25, 0.5, 1.0)]
+        assert areas[0] < areas[1] < areas[2] < areas[3]
+
+    def test_size_zero_collapses_onto_lash_line(self):
+        """size=0 degenerates the band onto the lash line (near-zero area)."""
+        assert _mask_area(0.0) < 0.05 * _mask_area(1.0)
+
+    def test_size_one_matches_legacy_full_polygon(self):
+        """size=1 reproduces the legacy concatenated-indices polygon (IoU)."""
+        coords = _build_band_coords(
+            list(EYELID_CREASE_LEFT_INDICES), list(EYELID_LASH_LEFT_INDICES)
+        )
+        legacy = np.zeros((100, 100), dtype=np.uint8)
+        shift = 4
+        points = (coords[EYELID_LEFT_INDICES] * (1 << shift)).astype(np.int32)
+        cv2.fillPoly(legacy, [points], 255, shift=shift)
+
+        strategy = EyeShadowMaskStrategy(
+            list(EYELID_CREASE_LEFT_INDICES),
+            list(EYELID_LASH_LEFT_INDICES),
+            size=1.0,
+        )
+        new = strategy.generate(coords, (100, 100))
+
+        intersection = np.count_nonzero((legacy > 0) & (new > 0))
+        union = np.count_nonzero((legacy > 0) | (new > 0))
+        assert intersection / union > 0.99
+
+    def test_default_size_is_full(self):
+        """Omitting size behaves like size=1.0."""
+        crease = list(EYELID_CREASE_LEFT_INDICES)
+        lash = list(EYELID_LASH_LEFT_INDICES)
+        coords = _build_band_coords(crease, lash)
+        default_mask = EyeShadowMaskStrategy(crease, lash).generate(coords, (100, 100))
+        full_mask = EyeShadowMaskStrategy(crease, lash, size=1.0).generate(coords, (100, 100))
+        assert np.array_equal(default_mask, full_mask)
+
+
+# ── EyeShadowParams size validation ──────────────────────────────────────────
+
+
+class TestEyeShadowParamsSizeValidation:
+    """Tests for EyeShadowParams size validation at the dataclass level."""
+
+    @staticmethod
+    def _params(**kwargs) -> EyeShadowParams:
+        return EyeShadowParams(
+            color_params=ColorParams(target_rgb=(80, 60, 200)),
+            opacity=0.5,
+            **kwargs,
+        )
+
+    def test_size_default_is_one(self):
+        assert self._params().size == 1.0
+
+    def test_size_too_high(self):
+        with pytest.raises(ValueError, match="size must be"):
+            self._params(size=1.5)
+
+    def test_size_negative(self):
+        with pytest.raises(ValueError, match="size must be"):
+            self._params(size=-0.1)
+
+    def test_size_string(self):
+        with pytest.raises(ValueError, match="size must be"):
+            self._params(size="0.5")
+
+    def test_size_boundaries_valid(self):
+        assert self._params(size=0.0).size == 0.0
+        assert self._params(size=1.0).size == 1.0
 
 
 # ── EyeShadowBlendStrategy ───────────────────────────────────────────────────

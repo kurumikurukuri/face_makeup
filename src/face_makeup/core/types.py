@@ -89,6 +89,10 @@ class EyeShadowParams(PartParams):
     """Parameters for eyeshadow.
 
     Attributes:
+        size: Band height 0.0-1.0. The upper boundary is lerped from the
+            lash line (0.0) toward the crease line (1.0), so a small size
+            paints a thin band along the lash line and 1.0 (default)
+            covers the whole lid.
         glitter: Glitter (lamé) effect intensity 0.0-1.0.
             0.0 = matte only (current behaviour, default).
             Higher values increase glitter particle density/visibility.
@@ -98,12 +102,15 @@ class EyeShadowParams(PartParams):
             (useful for tests and comparison shots).
     """
 
+    size: float = 1.0
     glitter: float = 0.0
     seed: int | None = None
 
     def __post_init__(self):
         """Validate parameter bounds."""
         super().__post_init__()
+        if not isinstance(self.size, (int, float)) or not 0.0 <= self.size <= 1.0:
+            raise ValueError(f"size must be 0.0-1.0, got {self.size}")
         if not isinstance(self.glitter, (int, float)) or not 0.0 <= self.glitter <= 1.0:
             raise ValueError(f"glitter must be 0.0-1.0, got {self.glitter}")
         if self.seed is not None and not isinstance(self.seed, int):

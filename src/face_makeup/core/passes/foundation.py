@@ -28,18 +28,15 @@ _EXCLUSION_REGIONS = [
     LIPS_INDICES["lower"],
 ]
 
-# Every pass_type string Face._eyelid_part() can produce (base x zone x
-# side), so foundation excludes eyelid/eyelid-edge makeup regardless of
-# which zone the caller picked. The renderer only subtracts exclusion_passes
-# entries that are actually present in a given render (see renderer.py), so
-# listing a zone/side combination the caller didn't add is a harmless no-op.
+# Every pass_type string Face._eyelid_part() can produce (zone x side), so
+# foundation excludes eyelid makeup regardless of which zone the caller
+# picked. The renderer only subtracts exclusion_passes entries that are
+# actually present in a given render (see renderer.py), so listing a
+# zone/side combination the caller didn't add is a harmless no-op.
 _EYELID_EXCLUSION_PASSES = [
-    f"{base}_{side}"
-    for base in ("eyelid", "eyelid_edge")
-    for side in ("left", "right")
+    f"eyelid_{side}" for side in ("left", "right")
 ] + [
-    f"{base}_{zone}_{side}"
-    for base in ("eyelid", "eyelid_edge")
+    f"eyelid_{zone}_{side}"
     for zone in ("outer", "center", "inner")
     for side in ("left", "right")
 ]
@@ -130,8 +127,8 @@ class FoundationPass(MakeupPass):
 
     The mask strategy always carves out the eye interior (eyeliner
     region) and lip areas so foundation never bleeds into eyes or lips.
-    Eyelid and eyelid-edge regions, in any zone, are additionally excluded
-    via ``exclusion_passes``, but only take effect when the corresponding
+    Eyelid regions, in any zone, are additionally excluded via
+    ``exclusion_passes``, but only take effect when the corresponding
     pass is present in the same render.
     """
 

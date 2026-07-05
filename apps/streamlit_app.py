@@ -199,11 +199,11 @@ _SESSION_DEFAULTS = {
     'eyelid_opacity': 0.3,
     'eyelid_glitter': 0.0,
     'eyelid_zone': "全体",
-    'eyelid_edge_enabled': False,
-    'eyelid_edge_color': "#F52929",
-    'eyelid_edge_opacity': 0.5,
-    'eyelid_edge_glitter': 0.0,
-    'eyelid_edge_zone': "全体",
+    'eyelid_rim_enabled': False,
+    'eyelid_rim_color': "#B83A5C",
+    'eyelid_rim_opacity': 0.4,
+    'eyelid_rim_glitter': 0.0,
+    'eyelid_rim_zone': "全体",
     'eyeliner_enabled': False,
     'eyeliner_color': "#000000",
     'eyeliner_thickness': 2,
@@ -379,15 +379,17 @@ with st.sidebar:
 
     # Eye shadow settings
     with st.expander("👁️ アイシャドウ", expanded=False):
+        # ── アイホール (まぶた全体, size=1.0) ──
+        st.markdown("##### アイホール（まぶた全体）")
         eyelid_enabled = st.checkbox(
-            "アイシャドウを有効化",
+            "アイホールを有効化",
             value=st.session_state.eyelid_enabled,
             key="eyelid_enabled"
         )
 
         if eyelid_enabled:
             eyelid_color = st.color_picker(
-                "アイシャドウカラー",
+                "アイホールカラー",
                 value=st.session_state.eyelid_color,
                 key="eyelid_color"
             )
@@ -420,37 +422,38 @@ with st.sidebar:
                 help="ラメ効果の強さ（0: なし、1: 最大）"
             )
 
-    # Eye shadow (edge) settings
-    with st.expander("👁️ アイシャドウ（エッジ）", expanded=False):
-        eyelid_edge_enabled = st.checkbox(
-            "アイシャドウ（エッジ）を有効化",
-            value=st.session_state.eyelid_edge_enabled,
-            key="eyelid_edge_enabled",
-            help="広範囲に適用されるアイシャドウ"
+        st.divider()
+
+        # ── 目の際 (size=0.5) ──
+        st.markdown("##### 目の際")
+        eyelid_rim_enabled = st.checkbox(
+            "目の際を有効化",
+            value=st.session_state.eyelid_rim_enabled,
+            key="eyelid_rim_enabled"
         )
 
-        if eyelid_edge_enabled:
-            eyelid_edge_color = st.color_picker(
-                "アイシャドウ（エッジ）カラー",
-                value=st.session_state.eyelid_edge_color,
-                key="eyelid_edge_color"
+        if eyelid_rim_enabled:
+            eyelid_rim_color = st.color_picker(
+                "目の際カラー",
+                value=st.session_state.eyelid_rim_color,
+                key="eyelid_rim_color"
             )
-            st.caption(f"RGB: {hex_to_rgb(eyelid_edge_color)}")
+            st.caption(f"RGB: {hex_to_rgb(eyelid_rim_color)}")
 
             st.selectbox(
                 "塗り分け（部位）",
                 options=_EYELID_ZONE_LABELS,
-                key="eyelid_edge_zone",
-                help="目の淵を横方向に分割して塗る部位（全体/目尻側/中心部/目頭側）"
+                key="eyelid_rim_zone",
+                help="まぶたを横方向に分割して塗る部位（全体/目尻側/中心部/目頭側）"
             )
 
             st.slider(
                 "不透明度",
                 min_value=0.1,
                 max_value=0.8,
-                value=st.session_state.eyelid_edge_opacity,
+                value=st.session_state.eyelid_rim_opacity,
                 step=0.1,
-                key="eyelid_edge_opacity",
+                key="eyelid_rim_opacity",
                 help="メイクの強さ（0: 透明、1: 最大）"
             )
 
@@ -458,9 +461,9 @@ with st.sidebar:
                 "グリッター（ラメ）",
                 min_value=0.0,
                 max_value=1.0,
-                value=st.session_state.eyelid_edge_glitter,
+                value=st.session_state.eyelid_rim_glitter,
                 step=0.05,
-                key="eyelid_edge_glitter",
+                key="eyelid_rim_glitter",
                 help="ラメ効果の強さ（0: なし、1: 最大）"
             )
 
@@ -731,7 +734,7 @@ if image_source is not None:
                         st.session_state.lips_enabled or
                         st.session_state.cheek_enabled or
                         st.session_state.eyelid_enabled or
-                        st.session_state.eyelid_edge_enabled or
+                        st.session_state.eyelid_rim_enabled or
                         st.session_state.eyeliner_enabled or
                         st.session_state.tear_bag_enabled or
                         st.session_state.eyeiris_enabled
@@ -772,25 +775,27 @@ if image_source is not None:
                                 side='both'
                             )
 
-                        # Apply eye shadow
+                        # Apply eye shadow — アイホール (size=1.0, full lid)
                         if st.session_state.eyelid_enabled:
                             face.eyelid(
                                 color=hex_to_rgb(st.session_state.eyelid_color),
                                 opacity=st.session_state.eyelid_opacity,
                                 blur_strength=0.25,
+                                size=1.0,
                                 glitter=st.session_state.eyelid_glitter,
                                 zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_zone],
                                 side='both'
                             )
 
-                        # Apply eye shadow edge
-                        if st.session_state.eyelid_edge_enabled:
-                            face.eyelid_edge(
-                                color=hex_to_rgb(st.session_state.eyelid_edge_color),
-                                opacity=st.session_state.eyelid_edge_opacity,
+                        # Apply eye shadow — 目の際 (size=0.5, lash line)
+                        if st.session_state.eyelid_rim_enabled:
+                            face.eyelid(
+                                color=hex_to_rgb(st.session_state.eyelid_rim_color),
+                                opacity=st.session_state.eyelid_rim_opacity,
                                 blur_strength=0.25,
-                                glitter=st.session_state.eyelid_edge_glitter,
-                                zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_edge_zone],
+                                size=0.5,
+                                glitter=st.session_state.eyelid_rim_glitter,
+                                zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_rim_zone],
                                 side='both'
                             )
 
@@ -900,18 +905,18 @@ if image_source is not None:
                         st.write(f"- ぼかし強度: {st.session_state.cheek_blur_strength:.2f}")
 
                     if st.session_state.eyelid_enabled:
-                        st.write("**アイシャドウ**")
+                        st.write("**アイシャドウ（アイホール）**")
                         st.write(f"- カラー: {st.session_state.eyelid_color} {hex_to_rgb(st.session_state.eyelid_color)}")
                         st.write(f"- 部位: {st.session_state.eyelid_zone}")
                         st.write(f"- 不透明度: {st.session_state.eyelid_opacity}")
                         st.write(f"- グリッター: {st.session_state.eyelid_glitter:.2f}")
 
-                    if st.session_state.eyelid_edge_enabled:
-                        st.write("**アイシャドウ（エッジ）**")
-                        st.write(f"- カラー: {st.session_state.eyelid_edge_color} {hex_to_rgb(st.session_state.eyelid_edge_color)}")
-                        st.write(f"- 部位: {st.session_state.eyelid_edge_zone}")
-                        st.write(f"- 不透明度: {st.session_state.eyelid_edge_opacity}")
-                        st.write(f"- グリッター: {st.session_state.eyelid_edge_glitter:.2f}")
+                    if st.session_state.eyelid_rim_enabled:
+                        st.write("**アイシャドウ（目の際）**")
+                        st.write(f"- カラー: {st.session_state.eyelid_rim_color} {hex_to_rgb(st.session_state.eyelid_rim_color)}")
+                        st.write(f"- 部位: {st.session_state.eyelid_rim_zone}")
+                        st.write(f"- 不透明度: {st.session_state.eyelid_rim_opacity}")
+                        st.write(f"- グリッター: {st.session_state.eyelid_rim_glitter:.2f}")
 
                     if st.session_state.eyeliner_enabled:
                         st.write("**アイライナー**")
@@ -962,15 +967,17 @@ else:
             st.markdown("""
             **アイシャドウ**
             - カラー / 不透明度
-
-            **アイシャドウ（エッジ）**
-            - カラー / 不透明度
+            - 部位 / サイズ / グリッター
             """)
 
         with col3:
             st.markdown("""
             **アイライナー**
             - カラー / 太さ
+
+            **涙袋**
+            - ハイライト / シャドウ
+            - サイズ / グリッター
 
             **カラーコンタクト**
             - カラー / 不透明度

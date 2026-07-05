@@ -21,22 +21,6 @@ LM_1103 = 1103
 LM_1104 = 1104
 LM_1105 = 1105
 
-LM_1201 = 1201
-LM_1202 = 1202
-LM_1203 = 1203
-LM_1204 = 1204
-LM_1205 = 1205
-LM_1206 = 1206
-LM_1207 = 1207
-
-LM_1301 = 1301
-LM_1302 = 1302
-LM_1303 = 1303
-LM_1304 = 1304
-LM_1305 = 1305
-LM_1306 = 1306
-LM_1307 = 1307
-
 LM_1401 = 1401
 LM_1402 = 1402
 LM_1403 = 1403
@@ -110,49 +94,34 @@ CHEEK_RIGHT_INDICES = [
     432, 433, 434, 330, 345, 346, 347, 348, 352,
 ]
 
-# Eyelid - area for eye shadow
-EYELID_LEFT_INDICES = [
-    113, 225, 224, 223, 222, 221, 190,
-    243, 133, 173, 157, 158, 159, 160, 161, 246, 33, 130, 226,
-]
+# Eyelid - area for eye shadow.
+# The band is bounded by the crease line (top) and the lash line (bottom).
+# EyeShadowMaskStrategy lerps the upper boundary from the lash line (size=0)
+# toward the crease line (size=1), so a small size paints a thin band along
+# the lash line and 1.0 covers the whole lid.
+EYELID_CREASE_LEFT_INDICES = [113, 225, 224, 223, 222, 221, 190]  # outer->inner
+EYELID_LASH_LEFT_INDICES = [243, 133, 173, 157, 158, 159, 160, 161, 246, 33, 130, 226]  # inner->outer
 
-EYELID_RIGHT_INDICES = [
-    342, 445, 444, 443, 442, 441, 414,
-    463, 362, 398, 384, 385, 386, 387, 388, 466, 263, 359, 446,
-]
+EYELID_CREASE_RIGHT_INDICES = [342, 445, 444, 443, 442, 441, 414]  # outer->inner
+EYELID_LASH_RIGHT_INDICES = [463, 362, 398, 384, 385, 386, 387, 388, 466, 263, 359, 446]  # inner->outer
 
-# Eyelid edge - crease area
-EYELID_EDGE_LEFT_INDICES = [
-    LM_1201, LM_1202, LM_1203, LM_1204, LM_1205, LM_1206, LM_1207,
-    243, 133, 173, 157, 158, 159, 160, 161, 246, 33, 130, 226,
-]
+# Full closed polygon (crease outer->inner + lash inner->outer), kept for
+# consumers that need the concatenated contour.
+EYELID_LEFT_INDICES = EYELID_CREASE_LEFT_INDICES + EYELID_LASH_LEFT_INDICES
+EYELID_RIGHT_INDICES = EYELID_CREASE_RIGHT_INDICES + EYELID_LASH_RIGHT_INDICES
 
-EYELID_EDGE_RIGHT_INDICES = [
-    LM_1301, LM_1302, LM_1303, LM_1304, LM_1305, LM_1306, LM_1307,
-    463, 362, 398, 384, 385, 386, 387, 388, 466, 263, 359, 446,
-]
+# Eyelid zones - horizontal thirds (outer/center/inner) of the eyelid band.
+# Each zone is a (crease outer->inner, lash inner->outer) pair. Adjacent zones
+# share their seam vertices at both boundary lines, so the per-zone lerped
+# upper boundaries meet at identical seam points and the zones tile without
+# gaps at any size.
+EYELID_OUTER_LEFT_INDICES = ([113, 225, 224], [160, 161, 246, 33, 130, 226])
+EYELID_CENTER_LEFT_INDICES = ([224, 223, 222], [158, 159, 160])
+EYELID_INNER_LEFT_INDICES = ([222, 221, 190], [243, 133, 173, 157, 158])
 
-# Eyelid zones - horizontal thirds (outer/center/inner) of the eyelid polygon.
-# Each list traces a closed sub-polygon: crease points (outer->inner) then lash
-# points (inner->outer). Zones share their seam columns so they tile without gaps.
-# Overall band (crease line + lash line).
-EYELID_OUTER_LEFT_INDICES = [113, 225, 224, 160, 161, 246, 33, 130, 226]
-EYELID_CENTER_LEFT_INDICES = [224, 223, 222, 158, 159, 160]
-EYELID_INNER_LEFT_INDICES = [222, 221, 190, 243, 133, 173, 157, 158]
-
-EYELID_OUTER_RIGHT_INDICES = [342, 445, 444, 387, 388, 466, 263, 359, 446]
-EYELID_CENTER_RIGHT_INDICES = [444, 443, 442, 385, 386, 387]
-EYELID_INNER_RIGHT_INDICES = [442, 441, 414, 463, 362, 398, 384, 385]
-
-# Edge band - crease swapped for custom crease landmarks (LM_12xx/LM_13xx,
-# ordered outer->inner, matching EYELID_EDGE_*_INDICES).
-EYELID_EDGE_OUTER_LEFT_INDICES = [LM_1201, LM_1202, LM_1203, 160, 161, 246, 33, 130, 226]
-EYELID_EDGE_CENTER_LEFT_INDICES = [LM_1203, LM_1204, LM_1205, 158, 159, 160]
-EYELID_EDGE_INNER_LEFT_INDICES = [LM_1205, LM_1206, LM_1207, 243, 133, 173, 157, 158]
-
-EYELID_EDGE_OUTER_RIGHT_INDICES = [LM_1301, LM_1302, LM_1303, 387, 388, 466, 263, 359, 446]
-EYELID_EDGE_CENTER_RIGHT_INDICES = [LM_1303, LM_1304, LM_1305, 385, 386, 387]
-EYELID_EDGE_INNER_RIGHT_INDICES = [LM_1305, LM_1306, LM_1307, 463, 362, 398, 384, 385]
+EYELID_OUTER_RIGHT_INDICES = ([342, 445, 444], [387, 388, 466, 263, 359, 446])
+EYELID_CENTER_RIGHT_INDICES = ([444, 443, 442], [385, 386, 387])
+EYELID_INNER_RIGHT_INDICES = ([442, 441, 414], [463, 362, 398, 384, 385])
 
 
 EYELINER_UPPER_LEFT_INDICES = [

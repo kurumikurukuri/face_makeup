@@ -127,7 +127,7 @@ class TestFluentAPIChaining:
             .lip(color=(255, 100, 100), opacity=0.5)
             .cheek(color=(255, 180, 180), opacity=0.3, side='both')
             .eyelid(color=(180, 130, 150), opacity=0.3, side='both')
-            .eyelid_edge(color=(150, 100, 120), opacity=0.2, side='both')
+            .eyelid(color=(150, 100, 120), opacity=0.2, side='both', size=0.3)
             .eyeliner(color=(0, 0, 0), opacity=0.8, side='both')
             .eyeiris(color=(100, 150, 255), opacity=0.5, side='both')
         )

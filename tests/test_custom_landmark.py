@@ -16,8 +16,6 @@ from face_makeup.custom_landmark import (
 from face_makeup.constants import (
     LM_1001, LM_1002, LM_1003,
     LM_1101, LM_1102, LM_1103, LM_1104, LM_1105,
-    LM_1201, LM_1202, LM_1203, LM_1204, LM_1205, LM_1206, LM_1207,
-    LM_1301, LM_1302, LM_1303, LM_1304, LM_1305, LM_1306, LM_1307,
     LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408,
     LM_1501, LM_1502, LM_1503, LM_1504, LM_1505, LM_1506, LM_1507,
     LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608,
@@ -51,8 +49,6 @@ class TestCustomLandmarkDefs:
     ALL_LM = [
         LM_1001, LM_1002, LM_1003,
         LM_1101, LM_1102, LM_1103, LM_1104, LM_1105,
-        LM_1201, LM_1202, LM_1203, LM_1204, LM_1205, LM_1206, LM_1207,
-        LM_1301, LM_1302, LM_1303, LM_1304, LM_1305, LM_1306, LM_1307,
         LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408,
         LM_1501, LM_1502, LM_1503, LM_1504, LM_1505, LM_1506, LM_1507,
         LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608,
@@ -60,8 +56,8 @@ class TestCustomLandmarkDefs:
     ]
 
     def test_defs_count(self):
-        """CUSTOM_LANDMARK_DEFS should have 52 entries."""
-        assert len(CUSTOM_LANDMARK_DEFS) == 52
+        """CUSTOM_LANDMARK_DEFS should have 38 entries."""
+        assert len(CUSTOM_LANDMARK_DEFS) == 38
 
     def test_all_ids_unique(self):
         """All logical_ids should be unique."""
@@ -69,10 +65,10 @@ class TestCustomLandmarkDefs:
         assert len(ids) == len(set(ids))
 
     def test_kinds(self):
-        """22 mid + 30 edge = 52."""
+        """8 mid + 30 edge = 38."""
         mid_count = sum(1 for d in CUSTOM_LANDMARK_DEFS if d.kind == "mid")
         edge_count = sum(1 for d in CUSTOM_LANDMARK_DEFS if d.kind == "edge")
-        assert mid_count == 22
+        assert mid_count == 8
         assert edge_count == 30
 
     def test_all_ids_in_range(self):
@@ -97,10 +93,6 @@ class TestLMConstants:
     def test_lm_1001_is_int(self):
         assert LM_1001 == 1001
         assert isinstance(LM_1001, int)
-
-    def test_lm_1201_is_int(self):
-        assert LM_1201 == 1201
-        assert isinstance(LM_1201, int)
 
     def test_lm_1401_is_int(self):
         assert LM_1401 == 1401
