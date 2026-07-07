@@ -176,6 +176,8 @@ _EYELID_ZONE_OPTIONS = {
     "目尻側": "outer",
     "中心部": "center",
     "目頭側": "inner",
+    "目頭側+中心部": "inner_center",
+    "目尻側+中心部": "outer_center",
 }
 _EYELID_ZONE_LABELS = list(_EYELID_ZONE_OPTIONS.keys())
 

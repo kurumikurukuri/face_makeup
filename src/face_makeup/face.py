@@ -95,7 +95,7 @@ class Face:
                 f"side must be one of {Face._VALID_SIDES}, got '{side}'"
             )
 
-    _VALID_ZONES = ('full', 'outer', 'center', 'inner')
+    _VALID_ZONES = ('full', 'outer', 'center', 'inner', 'inner_center', 'outer_center')
 
     @staticmethod
     def _validate_zone(zone: str) -> None:
@@ -103,7 +103,8 @@ class Face:
         Validate eyelid zone parameter.
 
         Args:
-            zone: Must be 'full', 'outer', 'center', or 'inner'.
+            zone: Must be 'full', 'outer', 'center', 'inner',
+                  'inner_center', or 'outer_center'.
 
         Raises:
             ValueError: If zone is not a valid value.
@@ -119,7 +120,8 @@ class Face:
         Build an eyeshadow part name from zone and side.
 
         Args:
-            zone: 'full', 'outer', 'center', or 'inner'.
+            zone: 'full', 'outer', 'center', 'inner',
+                  'inner_center', or 'outer_center'.
             side: 'left' or 'right'.
 
         Returns:
@@ -284,7 +286,8 @@ class Face:
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
-        zone: Literal['full', 'outer', 'center', 'inner'] = 'full',
+        zone: Literal['full', 'outer', 'center', 'inner',
+                       'inner_center', 'outer_center'] = 'full',
         color: Tuple[int, int, int],
         opacity: float = 0.3,
         blur_strength: float = 0.5,

@@ -653,7 +653,7 @@ class TestApplyGlitter:
 class TestEyelidZones:
     """Tests for the `zone` argument on eyelid()."""
 
-    @pytest.mark.parametrize("zone", ["outer", "center", "inner"])
+    @pytest.mark.parametrize("zone", ["outer", "center", "inner", "inner_center", "outer_center"])
     def test_eyelid_zone_both_sides(self, face, zone):
         """eyelid(zone=...) builds zone-qualified part names for both sides."""
         face.eyelid(color=(180, 130, 150), zone=zone, side='both')
@@ -682,6 +682,19 @@ class TestEyelidZones:
         for zone in Face._VALID_ZONES:
             for side in ("left", "right"):
                 assert Face._eyelid_part(zone, side) in _INDICES_MAP
+
+    def test_extended_zone_mask_non_empty(self, face, test_image):
+        """inner_center and outer_zone produce non-empty masks on real landmarks."""
+        from face_makeup.core.passes.eyeshadow import EyeShadowMaskStrategy
+        from face_makeup import constants as C
+
+        coords = face.landmarks.to_image_coords(test_image.shape[1], test_image.shape[0])
+        shape = test_image.shape[:2]
+        for side in ("left", "right"):
+            for zone in ("inner_center", "outer_center"):
+                attr = getattr(C, f"EYELID_{zone.upper()}_{side.upper()}_INDICES")
+                mask = EyeShadowMaskStrategy(*attr).generate(coords, shape)
+                assert mask.sum() > 0, f"zone={zone} side={side} mask empty"
 
     @pytest.mark.parametrize("side", ["left", "right"])
     def test_overall_zones_tile_full_eyelid(self, face, test_image, side):

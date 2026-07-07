@@ -37,7 +37,7 @@ _EYELID_EXCLUSION_PASSES = [
     f"eyelid_{side}" for side in ("left", "right")
 ] + [
     f"eyelid_{zone}_{side}"
-    for zone in ("outer", "center", "inner")
+    for zone in ("outer", "center", "inner", "inner_center", "outer_center")
     for side in ("left", "right")
 ]
 

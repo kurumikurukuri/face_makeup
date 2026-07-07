@@ -7,6 +7,12 @@ mirroring the tear-bag ``_lerp_outer`` approach. A small size paints a thin
 band along the lash line; 1.0 covers the whole lid. Layered looks (e.g. a
 dark rim under a lighter full lid) are built by adding multiple passes with
 different sizes.
+
+Both boundary polylines are smoothed with a Catmull-Rom spline before the
+polygon is filled, so the sparse crease landmarks (3 points on the
+center/inner zones) do not leave a polygonal kink on the mask edge. The
+spline reproduces the seam vertices exactly, keeping adjacent zones tiled
+without gaps at any size.
 """
 from __future__ import annotations
 
@@ -20,10 +26,14 @@ from face_makeup.constants import (
     EYELID_CENTER_RIGHT_INDICES,
     EYELID_CREASE_LEFT_INDICES,
     EYELID_CREASE_RIGHT_INDICES,
+    EYELID_INNER_CENTER_LEFT_INDICES,
+    EYELID_INNER_CENTER_RIGHT_INDICES,
     EYELID_INNER_LEFT_INDICES,
     EYELID_INNER_RIGHT_INDICES,
     EYELID_LASH_LEFT_INDICES,
     EYELID_LASH_RIGHT_INDICES,
+    EYELID_OUTER_CENTER_LEFT_INDICES,
+    EYELID_OUTER_CENTER_RIGHT_INDICES,
     EYELID_OUTER_LEFT_INDICES,
     EYELID_OUTER_RIGHT_INDICES,
 )
@@ -36,6 +46,61 @@ if TYPE_CHECKING:
 
 # OpenCV sub-pixel precision bits for anti-aliased fillPoly.
 _SUBPIXEL_BITS = 4
+
+# Catmull-Rom interpolation points generated per original polyline segment.
+# Higher = smoother edge but more fillPoly vertices; 10 is visually smooth
+# without measurable cost on typical face-image resolutions.
+_SPLINE_SAMPLES_PER_SEGMENT = 10
+
+
+def _catmull_rom_resample(
+    points: np.ndarray,
+    samples_per_segment: int = _SPLINE_SAMPLES_PER_SEGMENT,
+) -> np.ndarray:
+    """Resample a polyline through Catmull-Rom spline interpolation.
+
+    Both endpoints are reproduced exactly, so adjacent zones that share seam
+    vertices still produce identical seam endpoints — no gaps open between
+    zone masks at any ``size``. Interior vertices become smooth curve points,
+    removing the polygonal kinks that sparse crease landmarks (3 points on
+    the center/inner zones) otherwise leave on the mask's upper edge.
+
+    For ``N < 3`` the input has no interior to smooth and is returned as-is.
+
+    Args:
+        points: (N, 2) float32 pixel coordinates.
+        samples_per_segment: Interpolation points emitted per original segment.
+
+    Returns:
+        (M, 2) float32 with ``M = 2 + (N - 1) * samples_per_segment``.
+    """
+    n = len(points)
+    if n < 3:
+        return points.astype(np.float32, copy=True)
+
+    # Mirror-reflect the endpoints so the boundary tangents follow the local
+    # polyline direction instead of clamping the curve flat at the seams.
+    extended = np.vstack([
+        2.0 * points[0] - points[1],
+        points,
+        2.0 * points[-1] - points[-2],
+    ])
+
+    resampled = [points[0]]
+    for i in range(len(extended) - 3):
+        p0, p1, p2, p3 = extended[i], extended[i + 1], extended[i + 2], extended[i + 3]
+        for t in np.linspace(0.0, 1.0, samples_per_segment, endpoint=False):
+            t2 = t * t
+            t3 = t2 * t
+            pt = 0.5 * (
+                (2.0 * p1)
+                + (-p0 + p2) * t
+                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+            )
+            resampled.append(pt)
+    resampled.append(points[-1])
+    return np.asarray(resampled, dtype=np.float32)
 
 
 def _lerp_upper(
@@ -106,8 +171,13 @@ class EyeShadowMaskStrategy(MaskStrategy):
         upper_pts, lash_pts = _lerp_upper(
             coords, self._crease_indices, self._lash_indices, self._size
         )
+        # Smooth both boundary polylines with Catmull-Rom before filling, so
+        # the sparse crease landmarks do not leave a polygonal kink on the
+        # upper edge. Endpoints are preserved → seams still match neighbours.
+        upper_smooth = _catmull_rom_resample(upper_pts)
+        lash_smooth = _catmull_rom_resample(lash_pts)
         # upper (inner→outer) + lash (outer→inner) forms a closed polygon
-        poly = np.vstack([upper_pts, lash_pts[::-1]])
+        poly = np.vstack([upper_smooth, lash_smooth[::-1]])
 
         shift = _SUBPIXEL_BITS
         scale = 1 << shift
@@ -152,6 +222,11 @@ _INDICES_MAP: dict[str, tuple[list[int], list[int]]] = {
     "eyelid_outer_right": EYELID_OUTER_RIGHT_INDICES,
     "eyelid_center_right": EYELID_CENTER_RIGHT_INDICES,
     "eyelid_inner_right": EYELID_INNER_RIGHT_INDICES,
+    # Extended zones (outer+center, inner+center).
+    "eyelid_inner_center_left": EYELID_INNER_CENTER_LEFT_INDICES,
+    "eyelid_inner_center_right": EYELID_INNER_CENTER_RIGHT_INDICES,
+    "eyelid_outer_center_left": EYELID_OUTER_CENTER_LEFT_INDICES,
+    "eyelid_outer_center_right": EYELID_OUTER_CENTER_RIGHT_INDICES,
 }
 
 

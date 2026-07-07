@@ -222,7 +222,7 @@ class TestFoundationPass:
         p = FoundationPass(params=params)
         for side in ("left", "right"):
             assert f"eyelid_{side}" in p.exclusion_passes
-            for zone in ("outer", "center", "inner"):
+            for zone in ("outer", "center", "inner", "inner_center", "outer_center"):
                 assert f"eyelid_{zone}_{side}" in p.exclusion_passes
 
     def test_has_mask_strategy(self, params):

@@ -112,16 +112,24 @@ EYELID_RIGHT_INDICES = EYELID_CREASE_RIGHT_INDICES + EYELID_LASH_RIGHT_INDICES
 
 # Eyelid zones - horizontal thirds (outer/center/inner) of the eyelid band.
 # Each zone is a (crease outer->inner, lash inner->outer) pair. Adjacent zones
-# share their seam vertices at both boundary lines, so the per-zone lerped
-# upper boundaries meet at identical seam points and the zones tile without
-# gaps at any size.
-EYELID_OUTER_LEFT_INDICES = ([113, 225, 224], [160, 161, 246, 33, 130, 226])
-EYELID_CENTER_LEFT_INDICES = ([224, 223, 222], [158, 159, 160])
-EYELID_INNER_LEFT_INDICES = ([222, 221, 190], [243, 133, 173, 157, 158])
+# share their crease seam vertices; the lash lists overlap by one point into
+# the neighbouring zone so the zone boundary edges stagger rather than aligning
+# into a single visible kink.
+EYELID_OUTER_LEFT_INDICES = ([113, 225, 224], [159, 160, 161, 246, 33, 130, 226])
+EYELID_CENTER_LEFT_INDICES = ([224, 223, 222], [157, 158, 159, 160, 161])
+EYELID_INNER_LEFT_INDICES = ([222, 221, 190], [243, 133, 173, 157, 158, 159])
 
-EYELID_OUTER_RIGHT_INDICES = ([342, 445, 444], [387, 388, 466, 263, 359, 446])
-EYELID_CENTER_RIGHT_INDICES = ([444, 443, 442], [385, 386, 387])
-EYELID_INNER_RIGHT_INDICES = ([442, 441, 414], [463, 362, 398, 384, 385])
+EYELID_OUTER_RIGHT_INDICES = ([342, 445, 444], [386, 387, 388, 466, 263, 359, 446])
+EYELID_CENTER_RIGHT_INDICES = ([444, 443, 442], [384, 385, 386, 387, 388])
+EYELID_INNER_RIGHT_INDICES = ([442, 441, 414], [463, 362, 398, 384, 385, 386])
+
+# Extended zones — adjacent zone pairs merged into single (crease, lash) tuples.
+# inner_center = inner ∪ center,  outer_center = outer ∪ center. The lash lists
+# carry the same one-point overlap into the neighbouring third as the base zones.
+EYELID_INNER_CENTER_LEFT_INDICES = ([224, 223, 222, 221, 190], [243, 133, 173, 157, 158, 159, 160, 161])
+EYELID_OUTER_CENTER_LEFT_INDICES = ([113, 225, 224, 223, 222], [157, 158, 159, 160, 161, 246, 33, 130, 226])
+EYELID_INNER_CENTER_RIGHT_INDICES = ([444, 443, 442, 441, 414], [463, 362, 398, 384, 385, 386, 387, 388])
+EYELID_OUTER_CENTER_RIGHT_INDICES = ([342, 445, 444, 443, 442], [384, 385, 386, 387, 388, 466, 263, 359, 446])
 
 
 EYELINER_UPPER_LEFT_INDICES = [
