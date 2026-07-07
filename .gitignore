@@ -4,6 +4,9 @@ CLAUDE.md
 .env.*
 .cache/
 .pytest_cache/
+htmlcov/
+.ruff_cache/
+.mypy_cache/
 venv/
 ENV/
 .venv/
@@ -17,4 +20,4 @@ outputs/
 .coverage
 *.egg-info/
 tasks/
-models/hair_segmenter.tflite
+models/

@@ -1,7 +1,7 @@
 # Core dependencies
 opencv-python>=4.7.0
 numpy>=1.25.0
-mediapipe==0.10.21
+mediapipe>=0.10.21,<0.11
 Pillow>=10.0.0
 
 # App dependencies (streamlit UI)
@@ -12,4 +12,4 @@ pillow-heif>=0.13.0
 # Dev dependencies
 pytest>=7.0.0
 pytest-cov>=4.0.0
-matplotlib >=3.7.0
+matplotlib>=3.7.0

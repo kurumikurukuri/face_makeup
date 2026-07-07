@@ -1,0 +1,11 @@
+[server]
+# Max upload size in MB. Caps file-upload / camera input before decode so a
+# single oversized request cannot exhaust memory. Aligns with the app-side
+# MAX_IMAGE_PIXELS decompression-bomb guard.
+maxUploadSize = 10
+
+[runner]
+# Disable fast re-runs so that modified source files are always reloaded
+# cleanly on every interaction (important when editing core library code
+# installed via pip install -e .).
+fastReruns = false
