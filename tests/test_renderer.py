@@ -6,7 +6,6 @@ import numpy as np
 
 from face_makeup.face import Face
 from face_makeup.core.pipeline import MakeupPass, MaskStrategy, BlendStrategy
-from face_makeup.core.passes.foundation import FoundationPass
 from face_makeup.core.types import (
     FaceLandmarks,
     ColorParams,
@@ -77,7 +76,7 @@ class _TintBlendStrategy(BlendStrategy):
         return result
 
 
-def _make_pass(pass_type, priority=0, exclusion_passes=None, blend=None):
+def _make_pass(pass_type, priority=0, blend=None):
     return MakeupPass(
         pass_type=pass_type,
         priority=priority,
@@ -88,7 +87,6 @@ def _make_pass(pass_type, priority=0, exclusion_passes=None, blend=None):
         landmark_indices=[],
         mask_strategy=_NoopMaskStrategy(),
         blend_strategy=blend or _IdentityBlendStrategy(),
-        exclusion_passes=exclusion_passes or [],
     )
 
 
@@ -108,27 +106,6 @@ class TestTwoPhasePipeline:
     def test_render_single_pass(self, renderer):
         face = _make_face(makeup_passes=[_make_pass("test", priority=10)])
         image = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = renderer.render_face(image, face)
-        assert result.shape == (100, 100, 3)
-
-    def test_exclusion_subtraction(self, renderer):
-        """Higher-layer mask should be subtracted from dependent pass mask."""
-        source = _make_pass("source", priority=10)
-        dependent = _make_pass("dependent", priority=5, exclusion_passes=["source"])
-        face = _make_face(makeup_passes=[dependent, source])
-        image = np.full((100, 100, 3), 128, dtype=np.uint8)
-        result = renderer.render_face(image, face)
-        assert result.shape == (100, 100, 3)
-
-    def test_multiple_exclusions(self, renderer):
-        source_a = _make_pass("source_a", priority=20)
-        source_b = _make_pass("source_b", priority=30)
-        dependent = _make_pass(
-            "dependent", priority=0,
-            exclusion_passes=["source_a", "source_b"],
-        )
-        face = _make_face(makeup_passes=[dependent, source_b, source_a])
-        image = np.full((100, 100, 3), 128, dtype=np.uint8)
         result = renderer.render_face(image, face)
         assert result.shape == (100, 100, 3)
 
@@ -175,14 +152,6 @@ class TestTwoPhasePipeline:
         # large's own region got exactly large's tint (not both stacked)
         assert result[70, 70, 0] == 50
 
-    def test_missing_exclusion_source_skipped(self, renderer):
-        """Dependent with exclusion from non-existent pass: silently skipped."""
-        dependent = _make_pass("dependent", priority=5, exclusion_passes=["nonexistent"])
-        face = _make_face(makeup_passes=[dependent])
-        image = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = renderer.render_face(image, face)
-        assert result.shape == (100, 100, 3)
-
     def test_no_mask_strategy_skipped(self, renderer):
         p = MakeupPass(
             pass_type="nomask", priority=0,
@@ -194,22 +163,6 @@ class TestTwoPhasePipeline:
         )
         face = _make_face(makeup_passes=[p])
         image = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = renderer.render_face(image, face)
-        assert result.shape == (100, 100, 3)
-
-    def test_foundation_with_exclusion_sources(self, renderer):
-        """Foundation with eyelid and lip exclusion sources should render correctly."""
-        foundation = FoundationPass(
-            params=PartParams(
-                color_params=ColorParams(target_rgb=(200, 200, 200)),
-                opacity=0.3,
-            ),
-        )
-        eyelid_left = _make_pass("eyelid_left", priority=25)
-        eyelid_right = _make_pass("eyelid_right", priority=26)
-        lips = _make_pass("lips", priority=20)
-        face = _make_face(makeup_passes=[foundation, eyelid_left, eyelid_right, lips])
-        image = np.full((100, 100, 3), 128, dtype=np.uint8)
         result = renderer.render_face(image, face)
         assert result.shape == (100, 100, 3)
 
@@ -233,5 +186,117 @@ class TestTwoPhasePipeline:
         center_pixel = result[50, 50, 0]
         # low (pri=0) blended first → +10, then high (pri=100) → +50 = +60 total in mask
         assert center_pixel == 60, f"Expected 60, got {center_pixel}"
+
+
+def _make_face_with_coords(coords_array, makeup_passes=None):
+    """Create a Face with specific landmark coordinates (normalized 0-1)."""
+    face = Face.__new__(Face)
+    face._face_id = 0
+    face._bbox = None
+    face._landmarks = FaceLandmarks(points=coords_array.astype(np.float32))
+    face._change_callback = None
+    face._makeup_passes = makeup_passes or []
+    return face
+
+
+class _FullCoverageMaskStrategy(MaskStrategy):
+    """Returns a mask covering the entire image."""
+
+    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+        return np.full(image_shape, 255, dtype=np.uint8)
+
+
+class _ProbeBlend(BlendStrategy):
+    """Encodes the final mask into channel 0 for inspection."""
+
+    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+        result = image.copy()
+        result[:, :, 0] = (np.clip(mask, 0.0, 1.0) * 255).astype(np.uint8)
+        return result
+
+
+class TestLandmarkExclusionAndClip:
+    """Tests for exclusion_landmarks and clip_landmarks in Phase 1."""
+
+    @pytest.fixture
+    def renderer(self):
+        return Renderer()
+
+    def test_exclusion_landmarks_subtraction(self, renderer):
+        """Landmark exclusion subtracts the polygon region from the mask."""
+        # Normalized coords for a 100×100 image:
+        # indices 0-3 form a square around the centre
+        coords = np.zeros((10, 2), dtype=np.float32)
+        coords[0] = [0.35, 0.35]
+        coords[1] = [0.65, 0.35]
+        coords[2] = [0.65, 0.65]
+        coords[3] = [0.35, 0.65]
+
+        p = MakeupPass(
+            pass_type="test", priority=0,
+            params=PartParams(
+                color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=1.0,
+            ),
+            landmark_indices=[],
+            mask_strategy=_FullCoverageMaskStrategy(),
+            blend_strategy=_ProbeBlend(),
+            exclusion_landmarks=[[0, 1, 2, 3]],
+        )
+        face = _make_face_with_coords(coords, makeup_passes=[p])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+
+        # Centre (inside exclusion polygon): masked out
+        assert result[50, 50, 0] < 10, f"Expected excluded, got {result[50, 50, 0]}"
+        # Corner (outside exclusion polygon): full mask
+        assert result[10, 10, 0] > 240, f"Expected full, got {result[10, 10, 0]}"
+
+    def test_clip_landmarks_intersection(self, renderer):
+        """Clip restricts the mask to the landmark polygon region."""
+        coords = np.zeros((10, 2), dtype=np.float32)
+        coords[0] = [0.25, 0.25]
+        coords[1] = [0.75, 0.25]
+        coords[2] = [0.75, 0.75]
+        coords[3] = [0.25, 0.75]
+
+        p = MakeupPass(
+            pass_type="test", priority=0,
+            params=PartParams(
+                color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=1.0,
+            ),
+            landmark_indices=[],
+            mask_strategy=_FullCoverageMaskStrategy(),
+            blend_strategy=_ProbeBlend(),
+            clip_landmarks=[[0, 1, 2, 3]],
+        )
+        face = _make_face_with_coords(coords, makeup_passes=[p])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+
+        # Inside clip region: mask > 0
+        assert result[50, 50, 0] > 10, f"Expected >0 inside clip, got {result[50, 50, 0]}"
+        # Outside clip region: mask == 0
+        assert result[10, 10, 0] == 0, f"Expected 0 outside clip, got {result[10, 10, 0]}"
+
+    def test_exclusion_landmarks_no_valid_points(self, renderer):
+        """Out-of-range landmark indices are silently skipped (no crash)."""
+        coords = np.zeros((5, 2), dtype=np.float32)
+
+        p = MakeupPass(
+            pass_type="test", priority=0,
+            params=PartParams(
+                color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=1.0,
+            ),
+            landmark_indices=[],
+            mask_strategy=_FullCoverageMaskStrategy(),
+            blend_strategy=_ProbeBlend(),
+            exclusion_landmarks=[[10, 11, 12, 13, 14]],
+        )
+        face = _make_face_with_coords(coords, makeup_passes=[p])
+        image = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = renderer.render_face(image, face)
+
+        # No valid exclusion → full coverage everywhere
+        assert result[50, 50, 0] > 240
 
 

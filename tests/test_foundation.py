@@ -208,22 +208,11 @@ class TestFoundationPass:
         p = FoundationPass(params=params)
         assert p.priority == 0
 
-    def test_excludes_eyelids_and_lips(self, params):
+    def test_excludes_eyes_eyelids_and_lips_via_landmarks(self, params):
+        """Eye interiors, full eyelids, and lips are always excluded via
+        exclusion_landmarks — no longer conditional on pass presence."""
         p = FoundationPass(params=params)
-        assert "eyelid_left" in p.exclusion_passes
-        assert "eyelid_right" in p.exclusion_passes
-        assert "lips" in p.exclusion_passes
-
-    def test_excludes_all_eyelid_zones(self, params):
-        """Regression guard: exclusion_passes must cover every zone/side
-        combination Face._eyelid_part() can produce, not just the
-        zone='full' eyelid pass_types.
-        """
-        p = FoundationPass(params=params)
-        for side in ("left", "right"):
-            assert f"eyelid_{side}" in p.exclusion_passes
-            for zone in ("outer", "center", "inner", "inner_center", "outer_center"):
-                assert f"eyelid_{zone}_{side}" in p.exclusion_passes
+        assert len(p.exclusion_landmarks) == 6  # 2 eyes + 2 eyelids + 2 lips
 
     def test_has_mask_strategy(self, params):
         p = FoundationPass(params=params)
@@ -241,6 +230,32 @@ class TestFoundationPass:
         """params.blur_strength defaults to 0.5, reproducing the original (31, 31) kernel."""
         p = FoundationPass(params=params)
         assert p.mask_strategy._blur_kernel == (31, 31)
+
+    def test_exclusion_landmarks_set(self, params):
+        """exclusion_landmarks must include eye interiors, eyelids, and lips."""
+        p = FoundationPass(params=params)
+        assert len(p.exclusion_landmarks) == 6
+        # Each group is a list of landmark indices
+        for group in p.exclusion_landmarks:
+            assert isinstance(group, list)
+            assert len(group) > 0
+            assert all(isinstance(i, int) for i in group)
+
+    def test_lips_in_exclusion_landmarks(self, params):
+        """Lips MUST be in exclusion_landmarks — always excluded, not
+        conditional on a lips pass being present."""
+        p = FoundationPass(params=params)
+        # At least one exclusion_landmark group should contain lip-range
+        # indices (upper lip ~0-20, lower lip ~270-320).
+        has_upper = False
+        has_lower = False
+        for group in p.exclusion_landmarks:
+            if any(0 <= idx <= 25 for idx in group):
+                has_upper = True
+            if any(260 <= idx <= 330 for idx in group):
+                has_lower = True
+        assert has_upper, "No upper-lip-range indices found in exclusion_landmarks"
+        assert has_lower, "No lower-lip-range indices found in exclusion_landmarks"
 
     def test_blur_kernel_derived_from_params_blur_strength(self):
         """params.blur_strength drives the mask blur kernel (previously ignored)."""

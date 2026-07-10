@@ -26,7 +26,7 @@ class _IdentityBlend(BlendStrategy):
         return np.clip(result, 0, 255).astype(np.uint8)
 
 
-def _make_pass(pass_type, priority=0, landmarks=None, exclusion_passes=None):
+def _make_pass(pass_type, priority=0, landmarks=None):
     return MakeupPass(
         pass_type=pass_type,
         priority=priority,
@@ -37,7 +37,6 @@ def _make_pass(pass_type, priority=0, landmarks=None, exclusion_passes=None):
         landmark_indices=landmarks or [],
         mask_strategy=_FullMaskStrategy(),
         blend_strategy=_IdentityBlend(),
-        exclusion_passes=exclusion_passes or [],
     )
 
 
@@ -114,9 +113,14 @@ class TestHairExclusionInRenderer:
     """Tests that hair mask is subtracted from all pass masks."""
 
     def test_hair_mask_subtracted_from_all_passes(self):
-        """Full-image mask minus hair mask should leave hair region at 0."""
+        """Hair region is excluded from every pass (feathered, applied after fade).
+
+        Exclusion is now a feathered soft gate: the interior of a hair region
+        stays fully excluded while its boundary ramps. We assert on a deep
+        interior pixel (fully excluded) and pixels well outside the region.
+        """
         hair_mask = np.zeros((64, 64), dtype=np.uint8)
-        hair_mask[10:20, 10:20] = 255  # small hair patch
+        hair_mask[20:44, 20:44] = 255  # large hair patch → solid interior
 
         fake_seg = _FakeHairSegmenter(hair_mask)
         renderer = Renderer(hair_segmenter=fake_seg)
@@ -128,10 +132,10 @@ class TestHairExclusionInRenderer:
         image = np.zeros((64, 64, 3), dtype=np.uint8)
         result = renderer.render_face(image, face)
 
-        # Two passes, each adds +10 to R. Hair region excluded → +0.
-        assert result[5, 5, 2] == 20      # outside hair: +10+10 = 20
-        assert result[15, 15, 2] == 0     # hair region, excluded
-        assert result[30, 30, 2] == 20    # outside hair: +10+10 = 20
+        # Two passes, each adds +10 to R. Deep hair interior excluded → +0.
+        assert result[5, 5, 2] == 20      # well outside hair: +10+10 = 20
+        assert result[32, 32, 2] == 0     # deep hair interior, fully excluded
+        assert result[58, 58, 2] == 20    # well outside hair: +10+10 = 20
 
     def test_hair_mask_none_does_not_affect(self):
         """Without hair segmenter, behavior is unchanged."""
@@ -156,24 +160,3 @@ class TestHairExclusionInRenderer:
         image = np.zeros((64, 64, 3), dtype=np.uint8)
         result = renderer.render_face(image, face)
         assert result[30, 30, 2] == 10  # behaves as if no hair segmenter
-
-    def test_hair_exclusion_combined_with_pass_exclusions(self):
-        """Hair + pass-specific exclusions both apply."""
-        hair_mask = np.zeros((64, 64), dtype=np.uint8)
-        hair_mask[5:30, 5:30] = 255
-
-        fake_seg = _FakeHairSegmenter(hair_mask)
-        renderer = Renderer(hair_segmenter=fake_seg)
-
-        source = _make_pass("exclude_me", priority=0)
-        dependent = _make_pass("dependent", priority=1, exclusion_passes=["exclude_me"])
-        face = _make_face([source, dependent])
-
-        image = np.zeros((64, 64, 3), dtype=np.uint8)
-        result = renderer.render_face(image, face)
-
-        # source has full mask → +10 everywhere except hair
-        # dependent has full mask minus source mask → no area left → +0
-        # Both have hair excluded
-        assert result[0, 0, 2] == 10    # outside hair, source only
-        assert result[10, 10, 2] == 0   # hair region, all excluded

@@ -44,25 +44,29 @@ def _build_lips_coords() -> np.ndarray:
 class TestLipMaskStrategy:
     """Tests for LipMaskStrategy mask generation."""
 
-    def test_generate_returns_uint8_mask(self):
-        """Valid upper and lower lip points produce non-zero uint8 mask."""
+    def test_generate_returns_soft_mask(self):
+        """Valid upper and lower lip points produce a non-empty soft mask.
+
+        The mask strategy now bakes the fade in and returns float32 0-1, so
+        the pipeline can apply exclusions to the softened mask before blending.
+        """
         coords = _build_lips_coords()
-        strategy = LipMaskStrategy()
+        strategy = LipMaskStrategy(blur_strength=0.5)
         mask = strategy.generate(coords, (100, 100))
-        assert mask.dtype == np.uint8
+        assert mask.dtype == np.float32
         assert mask.shape == (100, 100)
-        assert mask.max() == 255
+        assert 0.0 < mask.max() <= 1.0
 
     def test_generate_with_all_zero_coords(self):
         """All landmark coords at (0,0) still produces valid (but degenerate) mask."""
         max_idx = max(max(UPPER_LIP_INDICES), max(LOWER_LIP_INDICES))
         coords = np.zeros((max_idx + 1, 2), dtype=np.float32)
-        strategy = LipMaskStrategy()
+        strategy = LipMaskStrategy(blur_strength=0.5)
         mask = strategy.generate(coords, (100, 100))
         # fillPoly with all coords at origin may produce small artifacts
         # near (0,0) with sub-pixel fixed-point rendering, but won't
         # crash and returns correct shape/dtype.
-        assert mask.dtype == np.uint8
+        assert mask.dtype == np.float32
         assert mask.shape == (100, 100)
 
 

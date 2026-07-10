@@ -13,28 +13,27 @@ from face_makeup.constants import (
     RIGHT_EYE_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import apply_hue_shift_blend, standard_blend
+from face_makeup.core.blend.blend_utils import blend_hue_shift, blend_matte, soften_mask
 from face_makeup.core.types import EyeIrisParams
 
 
-_EYE_CONTOUR_MAP = {
-    "eyeiris_left": LEFT_EYE_INDICES,
-    "eyeiris_right": RIGHT_EYE_INDICES,
-}
-
-
-_INDICES_MAP = {
-    "eyeiris_left": EYE_IRIS_LEFT_INDICES,
-    "eyeiris_right": EYE_IRIS_RIGHT_INDICES,
-}
 
 
 class EyeIrisMaskStrategy(MaskStrategy):
-    """Ellipse mask fitted to iris landmark points, clipped to eye opening."""
+    """Ellipse mask fitted to iris landmark points.
 
-    def __init__(self, indices: list[int], eye_contour_indices: list[int]):
+    Clipping to the eye opening is applied by the renderer via
+    ``EyeIrisPass.clip_landmarks`` — the mask strategy itself only
+    produces the iris ellipse.
+    """
+
+    def __init__(
+        self,
+        indices: list[int],
+        blur_strength: float = 0.5,
+    ):
         self._indices = indices
-        self._eye_contour_indices = eye_contour_indices
+        self._blur_strength = blur_strength
 
     def generate(
         self,
@@ -49,30 +48,16 @@ class EyeIrisMaskStrategy(MaskStrategy):
 
         points = coords[self._indices]
         if len(points) < 5:
-            return mask
+            return soften_mask(mask, self._blur_strength)
 
-        # 1. Iris ellipse from 5 landmark points
-        iris_mask = np.zeros((h, w), dtype=np.uint8)
         ellipse = cv2.fitEllipse(points)
-        cv2.ellipse(iris_mask, ellipse, color=255, thickness=-1)
+        cv2.ellipse(mask, ellipse, color=255, thickness=-1)
 
-        # 2. Clip to eye opening contour to prevent colour bleeding onto
-        #    eyelid skin when blinking, at extreme gaze angles, or under
-        #    landmark noise.
-        contour_pts = coords[self._eye_contour_indices]
-        if len(contour_pts) >= 3:
-            eye_opening = np.zeros((h, w), dtype=np.uint8)
-            cv2.fillPoly(eye_opening, [contour_pts.astype(np.int32)], color=255)
-            mask = cv2.bitwise_and(iris_mask, eye_opening)
-        else:
-            # Fallback: not enough contour points — use unclipped ellipse.
-            mask = iris_mask
-
-        return mask
+        return soften_mask(mask, self._blur_strength)
 
 
 class EyeIrisBlendStrategy(BlendStrategy):
-    """Dispatches to hue-shift or standard blend based on params."""
+    """Dispatches to hue-shift or matte colour over a ready soft mask."""
 
     def apply(
         self,
@@ -84,32 +69,40 @@ class EyeIrisBlendStrategy(BlendStrategy):
         landmarks: object | None = None,
     ) -> np.ndarray:
         if params.hue_shift:
-            return apply_hue_shift_blend(
+            return blend_hue_shift(
                 image, mask,
                 params.color_params.target_rgb,
                 params.opacity,
-                params.blur_strength,
             )
-        return standard_blend(
+        return blend_matte(
             image, mask,
             params.color_params.target_rgb,
             params.opacity,
-            params.blur_strength,
         )
 
 
 class EyeIrisPass(MakeupPass):
-    """Eye iris (color contact lens) makeup pass."""
+    """Eye iris (color contact lens) makeup pass.
+
+    The iris ellipse is clipped to the eye opening contour by the
+    renderer via ``clip_landmarks``, preventing colour bleed onto eyelid
+    skin when blinking, at extreme gaze angles, or under landmark noise.
+    """
 
     def __init__(self, params: EyeIrisParams, side: str):
         part_name = f"eyeiris_{side}"
         indices = EYE_IRIS_LEFT_INDICES if side == "left" else EYE_IRIS_RIGHT_INDICES
-        contour_indices = _EYE_CONTOUR_MAP[part_name]
+        contour_indices = (
+            LEFT_EYE_INDICES if side == "left" else RIGHT_EYE_INDICES
+        )
         super().__init__(
             pass_type=part_name,
             priority=35,
             params=params,
             landmark_indices=list(indices),
-            mask_strategy=EyeIrisMaskStrategy(list(indices), list(contour_indices)),
+            mask_strategy=EyeIrisMaskStrategy(
+                list(indices), params.blur_strength,
+            ),
             blend_strategy=EyeIrisBlendStrategy(),
+            clip_landmarks=[list(contour_indices)],
         )

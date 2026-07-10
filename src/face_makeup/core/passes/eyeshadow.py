@@ -38,7 +38,7 @@ from face_makeup.constants import (
     EYELID_OUTER_RIGHT_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import apply_glitter, standard_blend
+from face_makeup.core.blend.blend_utils import apply_glitter, blend_matte, soften_mask
 from face_makeup.core.types import EyeShadowParams
 
 if TYPE_CHECKING:
@@ -149,10 +149,12 @@ class EyeShadowMaskStrategy(MaskStrategy):
         crease_indices: list[int],
         lash_indices: list[int],
         size: float = 1.0,
+        blur_strength: float = 0.5,
     ):
         self._crease_indices = list(crease_indices)
         self._lash_indices = list(lash_indices)
         self._size = size
+        self._blur_strength = blur_strength
 
     def generate(
         self,
@@ -166,7 +168,7 @@ class EyeShadowMaskStrategy(MaskStrategy):
         mask = np.zeros((h, w), dtype=np.uint8)
 
         if len(self._crease_indices) < 1 or len(self._lash_indices) < 2:
-            return mask
+            return soften_mask(mask, self._blur_strength)
 
         upper_pts, lash_pts = _lerp_upper(
             coords, self._crease_indices, self._lash_indices, self._size
@@ -184,11 +186,11 @@ class EyeShadowMaskStrategy(MaskStrategy):
         points_shifted = (poly * scale).astype(np.int32)
         cv2.fillPoly(mask, [points_shifted], 255, shift=shift)
 
-        return mask
+        return soften_mask(mask, self._blur_strength)
 
 
 class EyeShadowBlendStrategy(BlendStrategy):
-    """Standard HSV-aware blend with optional glitter (lamé) overlay."""
+    """Pure matte colour over a ready soft mask, with optional glitter overlay."""
 
     def apply(
         self,
@@ -199,11 +201,10 @@ class EyeShadowBlendStrategy(BlendStrategy):
         segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
-        result = standard_blend(
+        result = blend_matte(
             image, mask,
             params.color_params.target_rgb,
             params.opacity,
-            params.blur_strength,
         )
         if params.glitter > 0:
             rng = np.random.default_rng(params.seed) if params.seed is not None else None
@@ -241,7 +242,8 @@ class EyeShadowPass(MakeupPass):
             params=params,
             landmark_indices=list(crease_indices) + list(lash_indices),
             mask_strategy=EyeShadowMaskStrategy(
-                list(crease_indices), list(lash_indices), params.size
+                list(crease_indices), list(lash_indices), params.size,
+                params.blur_strength,
             ),
             blend_strategy=EyeShadowBlendStrategy(),
         )

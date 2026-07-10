@@ -63,7 +63,8 @@ class TestEyelinerMaskStrategy:
         strategy = EyelinerMaskStrategy("eyeliner_left")
         mask = strategy.generate(coords, (128, 128), image=None)
         assert mask.shape == (128, 128)
-        assert mask.max() == 255
+        # Mask strategy now returns the final soft mask (float32 0-1).
+        assert 0.0 < mask.max() <= 1.0
 
     def test_generate_simple_path_right(self):
         """generate with image=None forces _generate_simple path (right eye)."""
@@ -71,7 +72,7 @@ class TestEyelinerMaskStrategy:
         strategy = EyelinerMaskStrategy("eyeliner_right")
         mask = strategy.generate(coords, (128, 128), image=None)
         assert mask.shape == (128, 128)
-        assert mask.max() == 255
+        assert 0.0 < mask.max() <= 1.0
 
     def test_generate_corrected_path(self):
         """generate with image forces _generate_corrected path."""
@@ -80,7 +81,22 @@ class TestEyelinerMaskStrategy:
         strategy = EyelinerMaskStrategy("eyeliner_left")
         mask = strategy.generate(coords, img.shape[:2], image=img)
         assert mask.shape == img.shape[:2]
-        assert mask.max() == 255
+        assert 0.0 < mask.max() <= 1.0
+
+    def test_thickness_dilates_mask(self):
+        """Larger thickness dilates the eyeliner geometry → more covered pixels.
+
+        Thickness dilation now lives in the mask stage (before the fade) so the
+        widened band is softened as one piece.
+        """
+        coords = _build_eyeliner_coords(EYELINER_LEFT_INDICES)
+        thin = EyelinerMaskStrategy(
+            "eyeliner_left", thickness=1
+        ).generate(coords, (128, 128), image=None)
+        thick = EyelinerMaskStrategy(
+            "eyeliner_left", thickness=5
+        ).generate(coords, (128, 128), image=None)
+        assert np.count_nonzero(thick) > np.count_nonzero(thin)
 
 
 # ── EyelinerBlendStrategy ────────────────────────────────────────────────────
@@ -99,25 +115,6 @@ class TestEyelinerBlendStrategy:
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert result.shape == solid_gray.shape
-
-    def test_thickness_5_dilates(self, solid_gray, center_mask):
-        """thickness=5 dilates the mask → more pixels affected."""
-        strategy = EyelinerBlendStrategy()
-        params_thin = EyeLinerParams(
-            color_params=ColorParams(target_rgb=(0, 0, 0)),
-            opacity=1.0,
-            thickness=1,
-        )
-        result_thin = strategy.apply(solid_gray, center_mask.copy(), params_thin)
-        params_thick = EyeLinerParams(
-            color_params=ColorParams(target_rgb=(0, 0, 0)),
-            opacity=1.0,
-            thickness=5,
-        )
-        result_thick = strategy.apply(solid_gray, center_mask.copy(), params_thick)
-        diff_thin = np.abs(result_thin.astype(float) - solid_gray.astype(float)).sum()
-        diff_thick = np.abs(result_thick.astype(float) - solid_gray.astype(float)).sum()
-        assert diff_thick > diff_thin
 
     def test_zero_opacity_unchanged(self, solid_gray, center_mask):
         """opacity=0 returns image unchanged."""

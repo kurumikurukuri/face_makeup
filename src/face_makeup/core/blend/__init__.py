@@ -18,6 +18,8 @@ from face_makeup.core.blend.blend_utils import (
     apply_glitter,
     apply_hue_shift_blend,
     apply_target_color,
+    blend_hue_shift,
+    blend_matte,
     soften_mask,
     standard_blend,
 )
@@ -35,6 +37,8 @@ __all__ = [
     "apply_glitter",
     "apply_hue_shift_blend",
     "apply_target_color",
+    "blend_hue_shift",
+    "blend_matte",
     "compute_iridescent_colors",
     "compute_static_twinkle",
     "generate_particles",

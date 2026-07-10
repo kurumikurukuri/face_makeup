@@ -64,32 +64,33 @@ class TestEyeIrisMaskStrategy:
         """Fewer than 5 iris points → early return zero mask (fitEllipse requires ≥5)."""
         # Create a strategy with only 4 indices — len(points) < 5 triggers early return
         strategy = EyeIrisMaskStrategy(
-            list(EYE_IRIS_LEFT_INDICES[:4]), list(LEFT_EYE_INDICES)
+            list(EYE_IRIS_LEFT_INDICES[:4])
         )
         coords = _build_iris_coords()
         mask = strategy.generate(coords, (100, 100))
         assert mask.max() == 0
 
     def test_generate_with_valid_points(self):
-        """5 iris points + eyelid contour → clipped ellipse mask."""
+        """5 iris points → ellipse mask (clip is handled by renderer)."""
         coords = _build_iris_coords()
         strategy = EyeIrisMaskStrategy(
-            list(EYE_IRIS_LEFT_INDICES), list(LEFT_EYE_INDICES)
+            list(EYE_IRIS_LEFT_INDICES)
         )
         mask = strategy.generate(coords, (100, 100))
-        assert mask.dtype == np.uint8
+        # Mask strategy now bakes the fade in and returns float32 0-1.
+        assert mask.dtype == np.float32
         assert mask.shape == (100, 100)
-        assert mask.max() == 255
+        assert 0.0 < mask.max() <= 1.0
 
-    def test_generate_no_contour_fallback(self):
-        """Without contour points, falls back to unclipped ellipse."""
+    def test_generate_pure_ellipse(self):
+        """Without clip_landmarks in the pass, the mask strategy returns a
+        pure (unclipped) iris ellipse — clipping is the renderer's job."""
         coords = _build_iris_coords()
-        # Use empty contour indices so fillPoly is skipped
-        strategy = EyeIrisMaskStrategy(list(EYE_IRIS_LEFT_INDICES), [])
+        strategy = EyeIrisMaskStrategy(list(EYE_IRIS_LEFT_INDICES))
         mask = strategy.generate(coords, (100, 100))
-        assert mask.dtype == np.uint8
+        assert mask.dtype == np.float32
         assert mask.shape == (100, 100)
-        assert mask.max() == 255
+        assert 0.0 < mask.max() <= 1.0
 
 
 # ── EyeIrisBlendStrategy ─────────────────────────────────────────────────────

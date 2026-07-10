@@ -5,17 +5,13 @@ Verifies the new naming conventions for coordinate systems.
 """
 import pytest
 import numpy as np
-from face_makeup.core.passes.cheek import CheekBlendStrategy
+from face_makeup.constants import CHEEK_LEFT_INDICES, CHEEK_RIGHT_INDICES
+from face_makeup.core.passes.cheek import CheekMaskStrategy
 from face_makeup.core.types import CheekParams, ColorParams, FaceLandmarks
 
 
 class TestEllipseMaskDebugInfo:
-    """Test debug_info dictionary returned by CheekBlendStrategy.create_cheek_mask."""
-
-    @pytest.fixture
-    def strategy(self):
-        """Create CheekBlendStrategy instance."""
-        return CheekBlendStrategy('left')
+    """Test debug_info dictionary returned by CheekMaskStrategy.create_cheek_mask."""
 
     @pytest.fixture
     def cheek_params(self):
@@ -26,6 +22,11 @@ class TestEllipseMaskDebugInfo:
             center=(0.0, 0.0),
             radius=(0.5, 0.5)
         )
+
+    @pytest.fixture
+    def strategy(self, cheek_params):
+        """Create CheekMaskStrategy instance (geometry now lives here)."""
+        return CheekMaskStrategy(list(CHEEK_LEFT_INDICES), 'left', cheek_params)
 
     @pytest.fixture
     def base_mask(self):
@@ -186,7 +187,8 @@ class TestEllipseMaskDebugInfo:
     @pytest.mark.parametrize("cheek_side", ['left', 'right'])
     def test_both_cheeks(self, cheek_params, base_mask, landmarks_3d, cheek_side):
         """Test debug_info works for both left and right cheeks."""
-        s = CheekBlendStrategy(cheek_side)
+        indices = CHEEK_LEFT_INDICES if cheek_side == 'left' else CHEEK_RIGHT_INDICES
+        s = CheekMaskStrategy(list(indices), cheek_side, cheek_params)
         result = s.create_cheek_mask(
             image_shape=(100, 100),
             base_mask=base_mask,

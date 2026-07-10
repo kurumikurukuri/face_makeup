@@ -13,7 +13,7 @@ from face_makeup.constants import (
 )
 from face_makeup.core.eyeliner_corrector import EyelinerCorrector
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import standard_blend
+from face_makeup.core.blend.blend_utils import blend_matte, soften_mask
 from face_makeup.core.types import EyeLinerParams
 
 # OpenCV sub-pixel precision bits for anti-aliased polylines.
@@ -28,11 +28,18 @@ _INDICES_MAP = {
 class EyelinerMaskStrategy(MaskStrategy):
     """Curve mask for eyeliner, optionally corrected via rule-based edge detection."""
 
-    def __init__(self, part_name: str):
+    def __init__(
+        self,
+        part_name: str,
+        thickness: int = 2,
+        blur_strength: float = 0.5,
+    ):
         self._part_name = part_name
         self._indices_dict = _INDICES_MAP[part_name]
         self._correction_map = EYELINER_CORRECTION_MAP.get(part_name, {})
         self._corrector = EyelinerCorrector()
+        self._thickness = thickness
+        self._blur_strength = blur_strength
 
     def generate(
         self,
@@ -50,7 +57,13 @@ class EyelinerMaskStrategy(MaskStrategy):
         else:
             mask = self._generate_simple(coords, image_shape)
 
-        return mask
+        # Thickness dilation belongs to geometry, so it must run before the
+        # fade — otherwise the added band would have a hard (unfaded) edge.
+        if self._thickness > 1:
+            kernel = np.ones((self._thickness, self._thickness), np.uint8)
+            mask = cv2.dilate(mask, kernel, iterations=1)
+
+        return soften_mask(mask, self._blur_strength)
 
     def _generate_simple(
         self, coords: np.ndarray, image_shape: tuple[int, int]
@@ -109,7 +122,7 @@ class EyelinerMaskStrategy(MaskStrategy):
 
 
 class EyelinerBlendStrategy(BlendStrategy):
-    """Dilate mask by thickness, then standard HSV-aware blend."""
+    """Pure matte colour over a ready soft (already thickness-dilated) mask."""
 
     def apply(
         self,
@@ -120,18 +133,10 @@ class EyelinerBlendStrategy(BlendStrategy):
         segmenter: object | None = None,
         landmarks: object | None = None,
     ) -> np.ndarray:
-        effective_mask = mask
-        if params.thickness > 1:
-            kernel = np.ones((params.thickness, params.thickness), np.uint8)
-            mask_uint8 = (mask * 255).astype(np.uint8) if mask.dtype != np.uint8 else mask
-            mask_dilated = cv2.dilate(mask_uint8, kernel, iterations=1)
-            effective_mask = mask_dilated.astype(np.float32) / 255.0
-
-        return standard_blend(
-            image, effective_mask,
+        return blend_matte(
+            image, mask,
             params.color_params.target_rgb,
             params.opacity,
-            params.blur_strength,
         )
 
 
@@ -146,6 +151,8 @@ class EyelinerPass(MakeupPass):
             priority=30,
             params=params,
             landmark_indices=indices,
-            mask_strategy=EyelinerMaskStrategy(part_name),
+            mask_strategy=EyelinerMaskStrategy(
+                part_name, params.thickness, params.blur_strength
+            ),
             blend_strategy=EyelinerBlendStrategy(),
         )

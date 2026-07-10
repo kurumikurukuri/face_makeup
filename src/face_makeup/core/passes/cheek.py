@@ -10,7 +10,7 @@ import numpy as np
 
 from face_makeup.constants import CHEEK_LEFT_INDICES, CHEEK_RIGHT_INDICES
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import standard_blend
+from face_makeup.core.blend.blend_utils import blend_matte, soften_mask
 from face_makeup.core.types import CheekParams, FaceLandmarks
 
 
@@ -21,10 +21,19 @@ _INDICES_MAP = {
 
 
 class CheekMaskStrategy(MaskStrategy):
-    """Convex hull mask from cheek landmark indices."""
+    """Soft cheek mask: convex hull ∩ 3D-projected ellipse, then edge-softened.
 
-    def __init__(self, indices: list[int]):
+    Owns the full geometry (convex hull + tangent-plane ellipse) and returns
+    the final soft mask (float32 0-1). Keeping geometry + fade here — and out of
+    the blend — lets the pipeline apply exclusions to the softened mask before
+    blending, so hair/pass exclusions never punch holes into the distance field.
+    """
+
+    def __init__(self, indices: list[int], cheek_side: str, params: CheekParams):
         self._indices = indices
+        self._cheek_side = cheek_side
+        self._params = params
+        self._blur_strength = params.blur_strength
 
     def generate(
         self,
@@ -35,44 +44,21 @@ class CheekMaskStrategy(MaskStrategy):
         segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
-        mask = np.zeros((h, w), dtype=np.uint8)
+        base = np.zeros((h, w), dtype=np.uint8)
 
         points = coords[self._indices]
         if len(points) < 3:
-            return mask
+            return soften_mask(base, self._blur_strength)
 
         hull = cv2.convexHull(points)
-        cv2.fillConvexPoly(mask, hull, 255)
+        cv2.fillConvexPoly(base, hull, 255)
 
-        return mask
-
-
-class CheekBlendStrategy(BlendStrategy):
-    """Generate 3D ellipse mask, combine with base mask, blend."""
-
-    def __init__(self, cheek_side: str):
-        self._cheek_side = cheek_side
-
-    def apply(
-        self,
-        image: np.ndarray,
-        mask: np.ndarray,
-        params: CheekParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
-        landmarks: FaceLandmarks | None = None,
-    ) -> np.ndarray:
-        cheek_mask = self.create_cheek_mask(
-            image.shape[:2], mask, params,
+        ellipse = self.create_cheek_mask(
+            image_shape, base, self._params,
             landmarks=landmarks, cheek_side=self._cheek_side,
         )
-        combined_mask = mask * cheek_mask
-        return standard_blend(
-            image, combined_mask,
-            params.color_params.target_rgb,
-            params.opacity,
-            params.blur_strength,
-        )
+        combined = (base.astype(np.float32) / 255.0) * ellipse.astype(np.float32)
+        return soften_mask(combined, self._blur_strength)
 
     # ------------------------------------------------------------------
     # 3D cheek ellipse projection (extracted from legacy FaceSegmenter)
@@ -471,6 +457,29 @@ class CheekBlendStrategy(BlendStrategy):
         return cheek_mask
 
 
+class CheekBlendStrategy(BlendStrategy):
+    """Pure matte colour application over a ready soft cheek mask.
+
+    All geometry (convex hull + 3D ellipse) and the fade now live in
+    :class:`CheekMaskStrategy`; this only applies the colour.
+    """
+
+    def apply(
+        self,
+        image: np.ndarray,
+        mask: np.ndarray,
+        params: CheekParams,
+        blender: object | None = None,
+        segmenter: object | None = None,
+        landmarks: FaceLandmarks | None = None,
+    ) -> np.ndarray:
+        return blend_matte(
+            image, mask,
+            params.color_params.target_rgb,
+            params.opacity,
+        )
+
+
 class CheekPass(MakeupPass):
     """Cheek makeup pass with 3D-projected ellipse blending."""
 
@@ -482,6 +491,6 @@ class CheekPass(MakeupPass):
             priority=15,
             params=params,
             landmark_indices=list(indices),
-            mask_strategy=CheekMaskStrategy(list(indices)),
-            blend_strategy=CheekBlendStrategy(side),
+            mask_strategy=CheekMaskStrategy(list(indices), side, params),
+            blend_strategy=CheekBlendStrategy(),
         )

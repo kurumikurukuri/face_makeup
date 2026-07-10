@@ -84,20 +84,24 @@ def apply_target_color(
     return rgb * (1 - blend_weight) + rgb_target * blend_weight
 
 
-def apply_hue_shift_blend(
+def blend_hue_shift(
     image: np.ndarray,
-    mask: np.ndarray,
+    soft_mask: np.ndarray,
     target_rgb: tuple[int, int, int],
     opacity: float,
-    blur_strength: float,
 ) -> np.ndarray:
-    """Hue-shift blend for iris.
+    """Hue-shift blend for iris, given an already-softened mask.
 
     Shifts only the H channel of the iris region to the target hue,
-    preserving original S and V, then alpha-blends back.
-    """
-    soft_mask = soften_mask(mask, blur_strength)
+    preserving original S and V, then alpha-blends back. The caller is
+    responsible for softening (fading) and excluding the mask beforehand.
 
+    Args:
+        image: RGB uint8 image (H, W, 3).
+        soft_mask: Ready soft mask float32 (0.0-1.0).
+        target_rgb: Target color as (R, G, B) 0-255.
+        opacity: Opacity (0.0-1.0).
+    """
     target_rgb_f = np.array(target_rgb, dtype=np.float32) / 255.0
     target_hsv = cv2.cvtColor(target_rgb_f.reshape(1, 1, 3), cv2.COLOR_RGB2HSV)[0, 0]
     target_h = float(target_hsv[0])
@@ -125,6 +129,23 @@ def apply_hue_shift_blend(
     result_float = rgb_shifted * blend_weight + image_float * (1.0 - blend_weight)
 
     return np.clip(result_float * 255.0, 0, 255).astype(np.uint8)
+
+
+def apply_hue_shift_blend(
+    image: np.ndarray,
+    mask: np.ndarray,
+    target_rgb: tuple[int, int, int],
+    opacity: float,
+    blur_strength: float,
+) -> np.ndarray:
+    """Soften a hard mask then hue-shift blend (fade + color in one call).
+
+    Convenience wrapper kept for direct callers; the composable pipeline
+    softens in the mask stage and calls :func:`blend_hue_shift` directly.
+    """
+    return blend_hue_shift(
+        image, soften_mask(mask, blur_strength), target_rgb, opacity
+    )
 
 
 def apply_glitter(
@@ -236,6 +257,33 @@ def apply_glitter(
     return result
 
 
+def blend_matte(
+    image: np.ndarray,
+    soft_mask: np.ndarray,
+    target_rgb: tuple[int, int, int],
+    opacity: float,
+) -> np.ndarray:
+    """HSV-aware matte color blend given an already-softened mask.
+
+    The caller is responsible for softening (fading) and excluding the mask
+    beforehand — this applies only the colour. Used by the composable pipeline,
+    where the fade lives in the mask stage so exclusions can be applied to the
+    soft mask before blending.
+
+    Args:
+        image: Input RGB uint8 image (H, W, 3).
+        soft_mask: Ready soft mask float32 (0.0-1.0).
+        target_rgb: Target color as (R, G, B) 0-255.
+        opacity: Opacity (0.0-1.0).
+
+    Returns:
+        RGB uint8 image with makeup applied.
+    """
+    image_float = image.astype(np.float32) / 255.0
+    rgb_result = apply_target_color(image_float, soft_mask, target_rgb, opacity)
+    return np.clip(rgb_result * 255, 0, 255).astype(np.uint8)
+
+
 def standard_blend(
     image: np.ndarray,
     mask: np.ndarray,
@@ -243,7 +291,10 @@ def standard_blend(
     opacity: float,
     blur_strength: float,
 ) -> np.ndarray:
-    """Standard HSV-aware blend: soften_mask + apply_target_color.
+    """Soften a hard mask then matte blend (fade + color in one call).
+
+    Convenience wrapper kept for direct callers; the composable pipeline
+    softens in the mask stage and calls :func:`blend_matte` directly.
 
     Args:
         image: Input RGB uint8 image (H, W, 3).
@@ -255,7 +306,4 @@ def standard_blend(
     Returns:
         RGB uint8 image with makeup applied.
     """
-    soft_mask = soften_mask(mask, blur_strength)
-    image_float = image.astype(np.float32) / 255.0
-    rgb_result = apply_target_color(image_float, soft_mask, target_rgb, opacity)
-    return np.clip(rgb_result * 255, 0, 255).astype(np.uint8)
+    return blend_matte(image, soften_mask(mask, blur_strength), target_rgb, opacity)

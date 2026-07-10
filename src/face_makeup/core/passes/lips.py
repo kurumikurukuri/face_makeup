@@ -10,7 +10,7 @@ import numpy as np
 
 from face_makeup.constants import LIPS_INDICES
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import standard_blend
+from face_makeup.core.blend.blend_utils import blend_matte, soften_mask
 from face_makeup.core.types import LipsParams
 
 # OpenCV sub-pixel precision bits for anti-aliased fillPoly.
@@ -18,7 +18,14 @@ _SUBPIXEL_BITS = 4
 
 
 class LipMaskStrategy(MaskStrategy):
-    """Polygon masks for upper and lower lip, combined via bitwise OR."""
+    """Soft lip mask: upper+lower polygons OR'd together, then edge-softened.
+
+    Returns the final soft mask (float32 0-1) with the fade baked in, so the
+    pipeline can apply exclusions to it before blending.
+    """
+
+    def __init__(self, blur_strength: float):
+        self._blur_strength = blur_strength
 
     def generate(
         self,
@@ -43,11 +50,11 @@ class LipMaskStrategy(MaskStrategy):
             cv2.fillPoly(part_mask, [points_shifted], 255, shift=shift)
             mask = cv2.bitwise_or(mask, part_mask)
 
-        return mask
+        return soften_mask(mask, self._blur_strength)
 
 
 class LipBlendStrategy(BlendStrategy):
-    """Standard HSV-aware blend for lips."""
+    """Pure matte colour application over a ready soft lip mask."""
 
     def apply(
         self,
@@ -58,11 +65,10 @@ class LipBlendStrategy(BlendStrategy):
         segmenter: object | None = None,
         landmarks: object | None = None,
     ) -> np.ndarray:
-        return standard_blend(
+        return blend_matte(
             image, mask,
             params.color_params.target_rgb,
             params.opacity,
-            params.blur_strength,
         )
 
 
@@ -75,6 +81,6 @@ class LipsPass(MakeupPass):
             priority=20,
             params=params,
             landmark_indices=list(LIPS_INDICES["upper"]) + list(LIPS_INDICES["lower"]),
-            mask_strategy=LipMaskStrategy(),
+            mask_strategy=LipMaskStrategy(params.blur_strength),
             blend_strategy=LipBlendStrategy(),
         )

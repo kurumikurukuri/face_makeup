@@ -74,9 +74,10 @@ class TestEyeShadowMaskStrategy:
         coords = _build_band_coords(crease, lash)
         strategy = EyeShadowMaskStrategy(crease, lash)
         mask = strategy.generate(coords, (100, 100))
-        assert mask.dtype == np.uint8
+        # Mask strategy now bakes the fade in and returns float32 0-1.
+        assert mask.dtype == np.float32
         assert mask.shape == (100, 100)
-        assert mask.max() == 255
+        assert 0.0 < mask.max() <= 1.0
 
     def test_generate_fewer_than_three_points(self):
         """Fewer than 3 polygon points → zero mask."""

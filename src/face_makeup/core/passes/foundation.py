@@ -9,6 +9,8 @@ import cv2
 import numpy as np
 
 from face_makeup.constants import (
+    EYELID_LEFT_INDICES,
+    EYELID_RIGHT_INDICES,
     EYELINER_LOWER_LEFT_INDICES,
     EYELINER_LOWER_RIGHT_INDICES,
     EYELINER_UPPER_LEFT_INDICES,
@@ -19,38 +21,35 @@ from face_makeup.constants import (
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.types import PartParams
 
-# Regions always excluded from the foundation mask.
-# Eyelid: eye shadow area.  Eyeliner upper+lower: eye interior.
-_EXCLUSION_REGIONS = [
+# Landmark groups always excluded from the foundation mask by the renderer
+# via ``exclusion_landmarks`` (soft * (1 - exclusion) = AND NOT).  Each
+# entry is a list of landmark indices whose polygon is subtracted from the
+# foundation soft mask after the fade, so the face-oval distance field is
+# never corrupted by exclusion holes.
+#
+# Groups:
+#   0-1   Eye interiors (eyeliner upper+lower) — prevent foundation bleed
+#         into the eyes regardless of which other passes are applied.
+#   2-3   Full eyelid regions (crease + lash) — keep foundation off the
+#         eyelids; always excluded, not conditional on eyeshadow presence.
+#   4-5   Upper / lower lip — keep foundation off the lips; always excluded,
+#         not conditional on a lips pass being present.
+_EXCLUSION_REGIONS: List[List[int]] = [
     EYELINER_UPPER_LEFT_INDICES + EYELINER_LOWER_LEFT_INDICES,
     EYELINER_UPPER_RIGHT_INDICES + EYELINER_LOWER_RIGHT_INDICES,
-    LIPS_INDICES["upper"],
-    LIPS_INDICES["lower"],
-]
-
-# Every pass_type string Face._eyelid_part() can produce (zone x side), so
-# foundation excludes eyelid makeup regardless of which zone the caller
-# picked. The renderer only subtracts exclusion_passes entries that are
-# actually present in a given render (see renderer.py), so listing a
-# zone/side combination the caller didn't add is a harmless no-op.
-_EYELID_EXCLUSION_PASSES = [
-    f"eyelid_{side}" for side in ("left", "right")
-] + [
-    f"eyelid_{zone}_{side}"
-    for zone in ("outer", "center", "inner", "inner_center", "outer_center")
-    for side in ("left", "right")
+    list(EYELID_LEFT_INDICES),
+    list(EYELID_RIGHT_INDICES),
+    list(LIPS_INDICES["upper"]),
+    list(LIPS_INDICES["lower"]),
 ]
 
 
 class FoundationMaskStrategy(MaskStrategy):
     """Face oval convex hull mask with Gaussian blur edge softening.
 
-    Always subtracts the eye interior (eyeliner upper+lower region) and
-    lip areas from the mask, so foundation never bleeds into the eyes or
-    lips, regardless of which other passes are applied. Eyelid exclusion
-    is handled separately at the pipeline level via
-    ``FoundationPass.exclusion_passes`` — it only takes effect when the
-    eyelid passes are part of the same render.
+    Exclusions (eye interiors, eyelids, lips) are applied by the renderer
+    via ``FoundationPass.exclusion_landmarks`` — the mask strategy itself
+    only defines the face-oval shape.
     """
 
     def __init__(self, blur_kernel: tuple[int, int] = (31, 31)):
@@ -72,21 +71,6 @@ class FoundationMaskStrategy(MaskStrategy):
         hull = cv2.convexHull(oval_points.astype(np.int32))
         cv2.fillConvexPoly(mask, hull, 255)
 
-        # Subtract eye and lip regions so foundation never covers them.
-        # Filter to valid indices so tests with small coordinate arrays work.
-        n_coords = len(coords)
-        exclusion_mask = np.zeros((h, w), dtype=np.uint8)
-        shift = 4
-        scale = 1 << shift
-        for indices in _EXCLUSION_REGIONS:
-            valid = [i for i in indices if i < n_coords]
-            if len(valid) < 3:
-                continue
-            points = coords[valid]
-            points_shifted = (points * scale).astype(np.int32)
-            cv2.fillPoly(exclusion_mask, [points_shifted], 255, shift=shift)
-
-        mask = cv2.subtract(mask, exclusion_mask)
         mask = cv2.GaussianBlur(mask, self._blur_kernel, 0)
         return mask
 
@@ -125,11 +109,10 @@ def blur_kernel_from_strength(blur_strength: float) -> tuple[int, int]:
 class FoundationPass(MakeupPass):
     """Full-face foundation with skin-tone overlay.
 
-    The mask strategy always carves out the eye interior (eyeliner
-    region) and lip areas so foundation never bleeds into eyes or lips.
-    Eyelid regions, in any zone, are additionally excluded via
-    ``exclusion_passes``, but only take effect when the corresponding
-    pass is present in the same render.
+    Eye interiors, full eyelid regions, and lips are always carved out
+    via ``exclusion_landmarks`` (landmark polygons subtracted by the
+    renderer after the fade), regardless of which other passes are
+    present in the same render.
     """
 
     def __init__(
@@ -146,5 +129,5 @@ class FoundationPass(MakeupPass):
             landmark_indices=list(FACE_OVAL_INDICES),
             mask_strategy=FoundationMaskStrategy(blur_kernel=blur_kernel),
             blend_strategy=FoundationBlendStrategy(),
-            exclusion_passes=_EYELID_EXCLUSION_PASSES + ["lips"],
+            exclusion_landmarks=_EXCLUSION_REGIONS,
         )
