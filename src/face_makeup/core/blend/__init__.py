@@ -20,6 +20,8 @@ from face_makeup.core.blend.blend_utils import (
     apply_target_color,
     blend_hue_shift,
     blend_matte,
+    feather_px_from_softness,
+    inter_ocular_distance,
     soften_mask,
     standard_blend,
 )
@@ -39,6 +41,8 @@ __all__ = [
     "apply_target_color",
     "blend_hue_shift",
     "blend_matte",
+    "feather_px_from_softness",
+    "inter_ocular_distance",
     "compute_iridescent_colors",
     "compute_static_twinkle",
     "generate_particles",

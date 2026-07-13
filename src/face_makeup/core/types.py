@@ -2,7 +2,7 @@
 Data structure definitions
 """
 from dataclasses import dataclass
-from typing import Tuple, Optional
+from typing import ClassVar, Optional, Tuple
 import numpy as np
 
 
@@ -40,14 +40,22 @@ class PartParams:
     """Base class shared by all facial parts"""
     color_params: ColorParams
     opacity: float  # 0..1
-    blur_strength: float = 0.5  # Edge attenuation (0..1). Boundary retains this fraction of opacity; center stays 1.0.
+    softness: float = 0.5  # Feather width as a face-size ratio (0..1); larger = softer/wider edge. Mapped to an absolute pixel feather via the inter-ocular span.
+
+    # Internal feather calibration — NOT dataclass fields, so they never appear
+    # in __init__/__repr__/__eq__ and stay hidden from the user API. Each part
+    # overrides them on its own Params subclass; the values here are the shared
+    # fallback (consumed as defaults by blend_utils.feather_px_from_softness /
+    # soften_mask when a pass does not override).
+    _FEATHER_SCALE: ClassVar[float] = 0.04
+    _SOFTEN_FLOOR: ClassVar[float] = 0.1
 
     def __post_init__(self):
         """Validate common parameter bounds."""
         if not isinstance(self.opacity, (int, float)) or not 0.0 <= self.opacity <= 1.0:
             raise ValueError(f"opacity must be 0.0-1.0, got {self.opacity}")
-        if not isinstance(self.blur_strength, (int, float)) or not 0.0 <= self.blur_strength <= 1.0:
-            raise ValueError(f"blur_strength must be 0.0-1.0, got {self.blur_strength}")
+        if not isinstance(self.softness, (int, float)) or not 0.0 <= self.softness <= 1.0:
+            raise ValueError(f"softness must be 0.0-1.0, got {self.softness}")
 
 
 @dataclass
@@ -66,12 +74,18 @@ class CheekParams(PartParams):
     """Parameters for cheeks.
 
     Parameters for generating an elliptical mask.
-    Fadeout effect is achieved via blur_strength (inherited from PartParams).
+    Fadeout effect is achieved via softness (inherited from PartParams).
 
     Attributes:
         center: Ellipse center offset in range [-1.0, 1.0] for each axis.
         radius: Ellipse radius in range (0.0, 1.0] for each axis.
     """
+    # Calibrated via scripts/param_sweep.py. Wider feather than the shared
+    # fallback so the broad cheek plateau fades softly.
+    _FEATHER_SCALE: ClassVar[float] = 0.15
+    _SOFTEN_FLOOR: ClassVar[float] = 0.05
+
+    softness: float = 0.6
     center: Tuple[float, float] = (0.0, 0.0)
     radius: Tuple[float, float] = (0.5, 0.5)
 
@@ -101,7 +115,12 @@ class EyeShadowParams(PartParams):
             unpredictable RNG; pass an integer for reproducible output
             (useful for tests and comparison shots).
     """
+    # Calibrated via scripts/param_sweep.py. Narrower feather than cheek so
+    # the thin lid band keeps a crisp lash-line edge.
+    _FEATHER_SCALE: ClassVar[float] = 0.10
+    _SOFTEN_FLOOR: ClassVar[float] = 0.05
 
+    softness: float = 0.4
     size: float = 1.0
     glitter: float = 0.0
     seed: int | None = None
@@ -191,4 +210,14 @@ class EyeIrisParams(PartParams):
             Preserves original S/V channels; only H is shifted to target hue.
             If False (default), use legacy HSV replace blend.
     """
+    # Calibrated via scripts/param_sweep.py (eyeiris_minimal_fade preset).
+    # A contact lens has a physically defined edge, unlike a blended cosmetic
+    # such as blush — the feather only needs to anti-alias the raster edge
+    # and absorb landmark jitter, not fade the colour into the sclera. Hence
+    # a narrow feather_scale, a high soften_floor (near-opaque at the edge),
+    # and a lower default softness than the shared PartParams fallback.
+    _FEATHER_SCALE: ClassVar[float] = 0.02
+    _SOFTEN_FLOOR: ClassVar[float] = 0.95
+
+    softness: float = 0.1
     hue_shift: bool = False

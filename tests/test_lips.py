@@ -51,7 +51,7 @@ class TestLipMaskStrategy:
         the pipeline can apply exclusions to the softened mask before blending.
         """
         coords = _build_lips_coords()
-        strategy = LipMaskStrategy(blur_strength=0.5)
+        strategy = LipMaskStrategy(softness=0.5)
         mask = strategy.generate(coords, (100, 100))
         assert mask.dtype == np.float32
         assert mask.shape == (100, 100)
@@ -61,7 +61,7 @@ class TestLipMaskStrategy:
         """All landmark coords at (0,0) still produces valid (but degenerate) mask."""
         max_idx = max(max(UPPER_LIP_INDICES), max(LOWER_LIP_INDICES))
         coords = np.zeros((max_idx + 1, 2), dtype=np.float32)
-        strategy = LipMaskStrategy(blur_strength=0.5)
+        strategy = LipMaskStrategy(softness=0.5)
         mask = strategy.generate(coords, (100, 100))
         # fillPoly with all coords at origin may produce small artifacts
         # near (0,0) with sub-pixel fixed-point rendering, but won't
@@ -82,7 +82,7 @@ class TestLipBlendStrategy:
         params = LipsParams(
             color_params=ColorParams(target_rgb=(200, 50, 80)),
             opacity=0.8,
-            blur_strength=0.3,
+            softness=0.3,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert result.shape == solid_gray.shape
@@ -94,7 +94,7 @@ class TestLipBlendStrategy:
         params = LipsParams(
             color_params=ColorParams(target_rgb=(200, 50, 80)),
             opacity=0.8,
-            blur_strength=0.3,
+            softness=0.3,
         )
         zero_mask = np.zeros((100, 100), dtype=np.float32)
         result = strategy.apply(solid_gray, zero_mask, params)
@@ -106,7 +106,7 @@ class TestLipBlendStrategy:
         params = LipsParams(
             color_params=ColorParams(target_rgb=(200, 50, 80)),
             opacity=1.0,
-            blur_strength=0.0,
+            softness=0.0,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert not np.array_equal(result, solid_gray)
@@ -117,7 +117,7 @@ class TestLipBlendStrategy:
         params = LipsParams(
             color_params=ColorParams(target_rgb=(200, 50, 80)),
             opacity=0.0,
-            blur_strength=0.3,
+            softness=0.3,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result, solid_gray)
@@ -128,7 +128,7 @@ class TestLipBlendStrategy:
         params = LipsParams(
             color_params=ColorParams(target_rgb=(200, 50, 80)),
             opacity=1.0,
-            blur_strength=0.0,
+            softness=0.0,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result[0:10, 0:10], solid_gray[0:10, 0:10])

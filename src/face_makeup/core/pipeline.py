@@ -71,7 +71,7 @@ class MakeupPass:
     Attributes:
         pass_type: Unique identifier for this pass (e.g. "foundation", "lips").
         priority: Render order; lower values are drawn first (under other layers).
-        params: Color, opacity, blur_strength, and part-specific fields.
+        params: Color, opacity, softness, and part-specific fields.
         landmark_indices: MediaPipe landmark indices for mask generation.
         mask_strategy: Strategy that returns the final soft mask (float32 0-1,
             geometry + fade baked in).

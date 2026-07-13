@@ -30,16 +30,21 @@ logger = logging.getLogger(__name__)
 def _to_soft01(mask: np.ndarray) -> np.ndarray:
     """Normalize a mask-strategy output to float32 in [0, 1].
 
-    Mask strategies return their final soft mask.  Most return float32 in
-    [0, 1] already; foundation's Gaussian-feathered oval is still uint8
-    (0-255).  We use a value-range check rather than dtype sniffing so that
-    a float32 mask whose values happen to be in the 0-255 range is still
-    normalized correctly.
+    Mask strategies return their final soft mask as float32 in [0, 1] via
+    soften_mask.  This is defensive handling for any MaskStrategy that does
+    not follow that contract and returns uint8 (0-255) instead.  We use a
+    value-range check rather than dtype sniffing so that a float32 mask
+    whose values happen to be in the 0-255 range is still normalized
+    correctly.
+
+    Uses a threshold of 1.5 (not 1.0) so that float32 rounding above 1.0
+    (e.g. 1.0000004 from the smootherstep feather ramp) is not mistaken for
+    an un-normalized 0-255 mask.
     """
     soft = mask.astype(np.float32, copy=False)
-    if soft.max() > 1.0:
+    if soft.max() > 1.5:
         soft /= 255.0
-    return soft
+    return np.clip(soft, 0.0, 1.0)
 
 
 def _feather_exclusion(mask: np.ndarray, sigma: float = 2.0) -> np.ndarray:

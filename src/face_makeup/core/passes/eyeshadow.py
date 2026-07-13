@@ -38,7 +38,12 @@ from face_makeup.constants import (
     EYELID_OUTER_RIGHT_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import apply_glitter, blend_matte, soften_mask
+from face_makeup.core.blend.blend_utils import (
+    apply_glitter,
+    blend_matte,
+    feather_px_from_softness,
+    soften_mask,
+)
 from face_makeup.core.types import EyeShadowParams
 
 if TYPE_CHECKING:
@@ -149,12 +154,16 @@ class EyeShadowMaskStrategy(MaskStrategy):
         crease_indices: list[int],
         lash_indices: list[int],
         size: float = 1.0,
-        blur_strength: float = 0.5,
+        softness: float = 0.5,
+        feather_scale: float = 0.04,
+        soften_floor: float = 0.1,
     ):
         self._crease_indices = list(crease_indices)
         self._lash_indices = list(lash_indices)
         self._size = size
-        self._blur_strength = blur_strength
+        self._softness = softness
+        self._feather_scale = feather_scale
+        self._soften_floor = soften_floor
 
     def generate(
         self,
@@ -167,8 +176,13 @@ class EyeShadowMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._feather_scale,
+        )
+
         if len(self._crease_indices) < 1 or len(self._lash_indices) < 2:
-            return soften_mask(mask, self._blur_strength)
+            return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
         upper_pts, lash_pts = _lerp_upper(
             coords, self._crease_indices, self._lash_indices, self._size
@@ -186,7 +200,7 @@ class EyeShadowMaskStrategy(MaskStrategy):
         points_shifted = (poly * scale).astype(np.int32)
         cv2.fillPoly(mask, [points_shifted], 255, shift=shift)
 
-        return soften_mask(mask, self._blur_strength)
+        return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
 
 class EyeShadowBlendStrategy(BlendStrategy):
@@ -243,7 +257,9 @@ class EyeShadowPass(MakeupPass):
             landmark_indices=list(crease_indices) + list(lash_indices),
             mask_strategy=EyeShadowMaskStrategy(
                 list(crease_indices), list(lash_indices), params.size,
-                params.blur_strength,
+                params.softness,
+                feather_scale=params._FEATHER_SCALE,
+                soften_floor=params._SOFTEN_FLOOR,
             ),
             blend_strategy=EyeShadowBlendStrategy(),
         )

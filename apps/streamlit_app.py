@@ -195,7 +195,7 @@ _SESSION_DEFAULTS = {
     'cheek_center_y': 0.0,
     'cheek_radius_x': 0.6,
     'cheek_radius_y': 0.5,
-    'cheek_blur_strength': 0.1,
+    'cheek_softness': 0.6,
     'eyelid_enabled': False,
     'eyelid_color': "#E0588C",
     'eyelid_opacity': 0.3,
@@ -371,11 +371,11 @@ with st.sidebar:
 
             st.slider(
                 "ぼかし強度",
-                min_value=0.1,
-                max_value=0.3,
-                value=st.session_state.cheek_blur_strength,
-                step=0.05,
-                key="cheek_blur_strength",
+                min_value=0.6,
+                max_value=1.0,
+                value=st.session_state.cheek_softness,
+                step=0.1,
+                key="cheek_softness",
                 help="エッジのぼかし強度（画像サイズに対する割合）"
             )
 
@@ -524,8 +524,8 @@ with st.sidebar:
 
             st.slider(
                 "ハイライト不透明度",
-                min_value=0.0,
-                max_value=1.0,
+                min_value=0.1,
+                max_value=0.4,
                 value=st.session_state.tear_bag_highlight_opacity,
                 step=0.05,
                 key="tear_bag_highlight_opacity",
@@ -755,7 +755,7 @@ if image_source is not None:
                             face.foundation(
                                 color=hex_to_rgb(st.session_state.foundation_color),
                                 opacity=st.session_state.foundation_opacity,
-                                blur_strength=0.5
+                                softness=0.5
                             )
 
                         # Apply lips
@@ -763,7 +763,7 @@ if image_source is not None:
                             face.lip(
                                 color=hex_to_rgb(st.session_state.lips_color),
                                 opacity=st.session_state.lips_opacity,
-                                blur_strength=0.5
+                                softness=0.5
                             )
 
                         # Apply cheek
@@ -773,7 +773,7 @@ if image_source is not None:
                                 opacity=st.session_state.cheek_opacity,
                                 center=(st.session_state.cheek_center_x, st.session_state.cheek_center_y),
                                 radius=(st.session_state.cheek_radius_x, st.session_state.cheek_radius_y),
-                                blur_strength=st.session_state.cheek_blur_strength,
+                                softness=st.session_state.cheek_softness,
                                 side='both'
                             )
 
@@ -782,7 +782,7 @@ if image_source is not None:
                             face.eyelid(
                                 color=hex_to_rgb(st.session_state.eyelid_color),
                                 opacity=st.session_state.eyelid_opacity,
-                                blur_strength=0.25,
+                                softness=0.25,
                                 size=1.0,
                                 glitter=st.session_state.eyelid_glitter,
                                 zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_zone],
@@ -794,7 +794,7 @@ if image_source is not None:
                             face.eyelid(
                                 color=hex_to_rgb(st.session_state.eyelid_rim_color),
                                 opacity=st.session_state.eyelid_rim_opacity,
-                                blur_strength=0.25,
+                                softness=0.25,
                                 size=0.5,
                                 glitter=st.session_state.eyelid_rim_glitter,
                                 zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_rim_zone],
@@ -807,7 +807,7 @@ if image_source is not None:
                                 color=hex_to_rgb(st.session_state.eyeliner_color),
                                 opacity=0.8,
                                 thickness=st.session_state.eyeliner_thickness,
-                                blur_strength=0.5,
+                                softness=0.5,
                                 side='both'
                             )
 
@@ -816,7 +816,7 @@ if image_source is not None:
                             face.tear_bag_highlight(
                                 color=hex_to_rgb(st.session_state.tear_bag_highlight_color),
                                 opacity=st.session_state.tear_bag_highlight_opacity,
-                                blur_strength=0.2,
+                                softness=0.2,
                                 size=st.session_state.tear_bag_size,
                                 glitter=st.session_state.tear_bag_highlight_glitter,
                                 side='both'
@@ -825,7 +825,7 @@ if image_source is not None:
                                 color=hex_to_rgb(st.session_state.tear_bag_shadow_color),
                                 opacity=st.session_state.tear_bag_shadow_opacity,
                                 thickness=st.session_state.tear_bag_shadow_thickness,
-                                blur_strength=0.5,
+                                softness=0.5,
                                 size=st.session_state.tear_bag_size,
                                 side='both'
                             )
@@ -836,20 +836,20 @@ if image_source is not None:
                                 face.eyeiris(
                                     color=hex_to_rgb(st.session_state.eyeiris_color_left),
                                     opacity=st.session_state.eyeiris_opacity,
-                                    blur_strength=0.5,
+                                    softness=0.1,
                                     side='left'
                                 )
                                 face.eyeiris(
                                     color=hex_to_rgb(st.session_state.eyeiris_color_right),
                                     opacity=st.session_state.eyeiris_opacity,
-                                    blur_strength=0.5,
+                                    softness=0.1,
                                     side='right'
                                 )
                             else:
                                 face.eyeiris(
                                     color=hex_to_rgb(st.session_state.eyeiris_color),
                                     opacity=st.session_state.eyeiris_opacity,
-                                    blur_strength=0.5,
+                                    softness=0.1,
                                     side='both'
                                 )
 
@@ -904,7 +904,7 @@ if image_source is not None:
                         st.write(f"- 不透明度: {st.session_state.cheek_opacity}")
                         st.write(f"- 中心: ({st.session_state.cheek_center_x:.2f}, {st.session_state.cheek_center_y:.2f})")
                         st.write(f"- 半径: ({st.session_state.cheek_radius_x:.2f}, {st.session_state.cheek_radius_y:.2f})")
-                        st.write(f"- ぼかし強度: {st.session_state.cheek_blur_strength:.2f}")
+                        st.write(f"- ぼかし強度: {st.session_state.cheek_softness:.2f}")
 
                     if st.session_state.eyelid_enabled:
                         st.write("**アイシャドウ（アイホール）**")

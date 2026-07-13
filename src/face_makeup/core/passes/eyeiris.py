@@ -13,7 +13,12 @@ from face_makeup.constants import (
     RIGHT_EYE_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import blend_hue_shift, blend_matte, soften_mask
+from face_makeup.core.blend.blend_utils import (
+    blend_hue_shift,
+    blend_matte,
+    feather_px_from_softness,
+    soften_mask,
+)
 from face_makeup.core.types import EyeIrisParams
 
 
@@ -30,10 +35,14 @@ class EyeIrisMaskStrategy(MaskStrategy):
     def __init__(
         self,
         indices: list[int],
-        blur_strength: float = 0.5,
+        softness: float = 0.5,
+        feather_scale: float = 0.04,
+        soften_floor: float = 0.1,
     ):
         self._indices = indices
-        self._blur_strength = blur_strength
+        self._softness = softness
+        self._feather_scale = feather_scale
+        self._soften_floor = soften_floor
 
     def generate(
         self,
@@ -46,14 +55,19 @@ class EyeIrisMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._feather_scale,
+        )
+
         points = coords[self._indices]
         if len(points) < 5:
-            return soften_mask(mask, self._blur_strength)
+            return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
         ellipse = cv2.fitEllipse(points)
         cv2.ellipse(mask, ellipse, color=255, thickness=-1)
 
-        return soften_mask(mask, self._blur_strength)
+        return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
 
 class EyeIrisBlendStrategy(BlendStrategy):
@@ -101,7 +115,9 @@ class EyeIrisPass(MakeupPass):
             params=params,
             landmark_indices=list(indices),
             mask_strategy=EyeIrisMaskStrategy(
-                list(indices), params.blur_strength,
+                list(indices), params.softness,
+                feather_scale=params._FEATHER_SCALE,
+                soften_floor=params._SOFTEN_FLOOR,
             ),
             blend_strategy=EyeIrisBlendStrategy(),
             clip_landmarks=[list(contour_indices)],

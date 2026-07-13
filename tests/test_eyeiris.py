@@ -64,7 +64,7 @@ class TestEyeIrisMaskStrategy:
         """Fewer than 5 iris points → early return zero mask (fitEllipse requires ≥5)."""
         # Create a strategy with only 4 indices — len(points) < 5 triggers early return
         strategy = EyeIrisMaskStrategy(
-            list(EYE_IRIS_LEFT_INDICES[:4])
+            list(EYE_IRIS_LEFT_INDICES[:4]),
         )
         coords = _build_iris_coords()
         mask = strategy.generate(coords, (100, 100))
@@ -74,7 +74,7 @@ class TestEyeIrisMaskStrategy:
         """5 iris points → ellipse mask (clip is handled by renderer)."""
         coords = _build_iris_coords()
         strategy = EyeIrisMaskStrategy(
-            list(EYE_IRIS_LEFT_INDICES)
+            list(EYE_IRIS_LEFT_INDICES),
         )
         mask = strategy.generate(coords, (100, 100))
         # Mask strategy now bakes the fade in and returns float32 0-1.
@@ -105,7 +105,7 @@ class TestEyeIrisBlendStrategy:
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=(100, 150, 255)),
             opacity=0.8,
-            blur_strength=0.0,
+            softness=0.0,
             hue_shift=True,
         )
         result = strategy.apply(solid_gray, center_mask, params)
@@ -118,7 +118,7 @@ class TestEyeIrisBlendStrategy:
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=(100, 150, 255)),
             opacity=0.8,
-            blur_strength=0.0,
+            softness=0.0,
             hue_shift=False,
         )
         result = strategy.apply(solid_gray, center_mask, params)
@@ -131,7 +131,7 @@ class TestEyeIrisBlendStrategy:
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=(100, 150, 255)),
             opacity=0.0,
-            blur_strength=0.0,
+            softness=0.0,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result, solid_gray)
@@ -142,7 +142,7 @@ class TestEyeIrisBlendStrategy:
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=(100, 150, 255)),
             opacity=1.0,
-            blur_strength=0.0,
+            softness=0.0,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result[0:10, 0:10], solid_gray[0:10, 0:10])
@@ -153,7 +153,7 @@ class TestEyeIrisBlendStrategy:
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=(128, 128, 128)),
             opacity=0.5,
-            blur_strength=0.0,
+            softness=0.0,
             hue_shift=True,
         )
         result = strategy.apply(solid_gray, center_mask, params)

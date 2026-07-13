@@ -10,7 +10,11 @@ import numpy as np
 
 from face_makeup.constants import CHEEK_LEFT_INDICES, CHEEK_RIGHT_INDICES
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import blend_matte, soften_mask
+from face_makeup.core.blend.blend_utils import (
+    blend_matte,
+    feather_px_from_softness,
+    soften_mask,
+)
 from face_makeup.core.types import CheekParams, FaceLandmarks
 
 
@@ -33,7 +37,7 @@ class CheekMaskStrategy(MaskStrategy):
         self._indices = indices
         self._cheek_side = cheek_side
         self._params = params
-        self._blur_strength = params.blur_strength
+        self._softness = params.softness
 
     def generate(
         self,
@@ -46,9 +50,14 @@ class CheekMaskStrategy(MaskStrategy):
         h, w = image_shape
         base = np.zeros((h, w), dtype=np.uint8)
 
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._params._FEATHER_SCALE,
+        )
+
         points = coords[self._indices]
         if len(points) < 3:
-            return soften_mask(base, self._blur_strength)
+            return soften_mask(base, feather_px, soften_floor=self._params._SOFTEN_FLOOR)
 
         hull = cv2.convexHull(points)
         cv2.fillConvexPoly(base, hull, 255)
@@ -58,7 +67,7 @@ class CheekMaskStrategy(MaskStrategy):
             landmarks=landmarks, cheek_side=self._cheek_side,
         )
         combined = (base.astype(np.float32) / 255.0) * ellipse.astype(np.float32)
-        return soften_mask(combined, self._blur_strength)
+        return soften_mask(combined, feather_px, soften_floor=self._params._SOFTEN_FLOOR)
 
     # ------------------------------------------------------------------
     # 3D cheek ellipse projection (extracted from legacy FaceSegmenter)
@@ -76,7 +85,7 @@ class CheekMaskStrategy(MaskStrategy):
         """
         Generate hard-edge ellipse mask for cheek.
 
-        Fadeout effect is achieved via blur_strength in blend().
+        Fadeout effect is achieved via softness (inherited from PartParams).
 
         Args:
             image_shape: Image size (h, w).

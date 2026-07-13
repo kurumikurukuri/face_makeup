@@ -30,7 +30,12 @@ from face_makeup.constants import (
     TEAR_BAG_ENVELOPE,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import apply_glitter, blend_matte, soften_mask
+from face_makeup.core.blend.blend_utils import (
+    apply_glitter,
+    blend_matte,
+    feather_px_from_softness,
+    soften_mask,
+)
 from face_makeup.core.types import TearBagHighlightParams, TearBagShadowParams
 
 if TYPE_CHECKING:
@@ -111,13 +116,13 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
         lash_indices: list[int],
         size: float = 1.0,
         envelope: Sequence[float] = TEAR_BAG_ENVELOPE,
-        blur_strength: float = 0.5,
+        softness: float = 0.5,
     ):
         self._ridge_indices = ridge_indices
         self._lash_indices = lash_indices
         self._size = size
         self._envelope = envelope
-        self._blur_strength = blur_strength
+        self._softness = softness
 
     def generate(
         self,
@@ -130,6 +135,8 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
+        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+
         outer_pts, lash_pts = _lerp_outer(
             coords, self._ridge_indices, self._lash_indices, self._size,
             envelope=self._envelope,
@@ -137,11 +144,11 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
         # outer (inner→outer) + lash (outer→inner) forms a closed polygon
         poly = np.vstack([outer_pts, lash_pts])
         if len(poly) < 3:
-            return soften_mask(mask, self._blur_strength)
+            return soften_mask(mask, feather_px)
 
         shift = _SUBPIXEL_BITS
         cv2.fillPoly(mask, [_shifted_points(poly, shift)], 255, shift=shift)
-        return soften_mask(mask, self._blur_strength)
+        return soften_mask(mask, feather_px)
 
 
 class TearBagShadowMaskStrategy(MaskStrategy):
@@ -154,14 +161,14 @@ class TearBagShadowMaskStrategy(MaskStrategy):
         size: float = 1.0,
         envelope: Sequence[float] = TEAR_BAG_ENVELOPE,
         line_thickness: int = 2,
-        blur_strength: float = 0.5,
+        softness: float = 0.5,
     ):
         self._ridge_indices = ridge_indices
         self._lash_indices = lash_indices
         self._size = size
         self._envelope = envelope
         self._line_thickness = line_thickness
-        self._blur_strength = blur_strength
+        self._softness = softness
 
     def generate(
         self,
@@ -174,12 +181,14 @@ class TearBagShadowMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
+        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+
         outer_pts, _ = _lerp_outer(
             coords, self._ridge_indices, self._lash_indices, self._size,
             envelope=self._envelope,
         )
         if len(outer_pts) < 2:
-            return soften_mask(mask, self._blur_strength)
+            return soften_mask(mask, feather_px)
 
         base_thickness = max(1, min(h, w) // 512)
         shift = _SUBPIXEL_BITS
@@ -194,7 +203,7 @@ class TearBagShadowMaskStrategy(MaskStrategy):
             kernel = np.ones((self._line_thickness, self._line_thickness), np.uint8)
             mask = cv2.dilate(mask, kernel, iterations=1)
 
-        return soften_mask(mask, self._blur_strength)
+        return soften_mask(mask, feather_px)
 
 
 class TearBagHighlightBlendStrategy(BlendStrategy):
@@ -265,7 +274,7 @@ class TearBagHighlightPass(MakeupPass):
             landmark_indices=ridge_indices + lash_indices,
             mask_strategy=TearBagHighlightMaskStrategy(
                 ridge_indices, lash_indices, params.size,
-                blur_strength=params.blur_strength,
+                softness=params.softness,
             ),
             blend_strategy=TearBagHighlightBlendStrategy(),
         )
@@ -284,7 +293,7 @@ class TearBagShadowPass(MakeupPass):
             mask_strategy=TearBagShadowMaskStrategy(
                 ridge_indices, lash_indices, params.size,
                 line_thickness=params.thickness,
-                blur_strength=params.blur_strength,
+                softness=params.softness,
             ),
             blend_strategy=TearBagShadowBlendStrategy(),
         )

@@ -131,18 +131,19 @@ class Face:
         return f"eyelid_{side}" if zone == 'full' else f"eyelid_{zone}_{side}"
 
     @staticmethod
-    def _validate_blur_strength(blur_strength: float) -> None:
+    def _validate_softness(softness: float) -> None:
         """
-        Validate blur_strength value.
+        Validate softness value.
 
         Args:
-            blur_strength: Blur strength value 0.0-1.0.
+            softness: Feather width as a face-size ratio 0.0-1.0.
+                Larger values produce a wider/softer edge.
 
         Raises:
-            ValueError: If blur_strength is not in valid range.
+            ValueError: If softness is not in valid range.
         """
-        if not isinstance(blur_strength, (int, float)) or not 0.0 <= blur_strength <= 1.0:
-            raise ValueError(f"blur_strength must be 0.0-1.0, got {blur_strength}")
+        if not isinstance(softness, (int, float)) or not 0.0 <= softness <= 1.0:
+            raise ValueError(f"softness must be 0.0-1.0, got {softness}")
 
     @staticmethod
     def _validate_glitter(glitter: float) -> None:
@@ -205,7 +206,7 @@ class Face:
         *,
         color: Tuple[int, int, int],
         opacity: float = 0.5,
-        blur_strength: float = 0.5
+        softness: float = 0.5
     ) -> Face:
         """
         Add lip makeup.
@@ -213,8 +214,8 @@ class Face:
         Args:
             color: RGB color tuple, e.g. (255, 0, 0) for red.
             opacity: Makeup strength 0.0-1.0.
-            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
-                this fraction of opacity; center stays 1.0.
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge.
 
         Returns:
             Self for chaining.
@@ -224,11 +225,11 @@ class Face:
         """
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         params = LipsParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength
+            softness=softness
         )
         self._makeup_passes.append(LipsPass(params))
         self._notify_change()
@@ -243,7 +244,7 @@ class Face:
         opacity: float = 0.3,
         center: Tuple[float, float] = (0.0, 0.0),
         radius: Tuple[float, float] = (0.5, 0.5),
-        blur_strength: float = 0.5
+        softness: float = 0.6
     ) -> Face:
         """
         Add cheek makeup.
@@ -254,8 +255,8 @@ class Face:
             opacity: Makeup strength 0.0-1.0.
             center: Ellipse center position (x, y) in normalized coords.
             radius: Ellipse radius (x, y) in normalized coords.
-            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
-                this fraction of opacity; center stays 1.0.
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge.
 
         Returns:
             Self for chaining.
@@ -266,11 +267,11 @@ class Face:
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         params = CheekParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength,
+            softness=softness,
             center=center,
             radius=radius
         )
@@ -290,7 +291,7 @@ class Face:
                        'inner_center', 'outer_center'] = 'full',
         color: Tuple[int, int, int],
         opacity: float = 0.3,
-        blur_strength: float = 0.5,
+        softness: float = 0.4,
         size: float = 1.0,
         glitter: float = 0.0
     ) -> Face:
@@ -304,8 +305,8 @@ class Face:
                 'outer' = 目尻側, 'center' = 中心部, 'inner' = 目頭側.
             color: RGB color tuple, e.g. (180, 130, 150).
             opacity: Makeup strength 0.0-1.0.
-            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
-                this fraction of opacity; center stays 1.0.
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge.
             size: Band height 0.0-1.0. The upper boundary is lerped from the
                 lash line (0.0) toward the crease line (1.0), so a small size
                 paints a thin band along the lash line and 1.0 (default)
@@ -328,12 +329,12 @@ class Face:
         self._validate_zone(zone)
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         self._validate_glitter(glitter)
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength,
+            softness=softness,
             size=size,
             glitter=glitter
         )
@@ -352,7 +353,7 @@ class Face:
         color: Tuple[int, int, int],
         opacity: float = 1.0,
         thickness: int = 2,
-        blur_strength: float = 0.5
+        softness: float = 0.5
     ) -> Face:
         """
         Add eye liner makeup.
@@ -362,8 +363,8 @@ class Face:
             color: RGB color tuple, e.g. (0, 0, 0) for black.
             opacity: Makeup strength 0.0-1.0.
             thickness: Line thickness 1-10.
-            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
-                this fraction of opacity; center stays 1.0.
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge.
 
         Returns:
             Self for chaining.
@@ -374,12 +375,12 @@ class Face:
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         params = EyeLinerParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
             thickness=thickness,
-            blur_strength=blur_strength
+            softness=softness
         )
         if side in ('left', 'both'):
             self._makeup_passes.append(EyelinerPass(params, 'left'))
@@ -395,7 +396,7 @@ class Face:
         side: Literal['left', 'right', 'both'] = 'both',
         color: Tuple[int, int, int],
         opacity: float = 0.5,
-        blur_strength: float = 0.5,
+        softness: float = 0.1,
         hue_shift: bool = False
     ) -> Face:
         """
@@ -405,8 +406,10 @@ class Face:
             side: 'left', 'right', or 'both'.
             color: RGB color tuple, e.g. (100, 150, 255) for blue.
             opacity: Makeup strength 0.0-1.0.
-            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
-                this fraction of opacity; center stays 1.0.
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge. Defaults lower
+                than other parts — a contact lens has a physically defined
+                edge, so it only needs anti-aliasing, not a cosmetic fade.
             hue_shift: If True, use hue-shift blend: shifts only the H
                 channel to target hue while preserving original S/V.
                 If False (default), use legacy HSV replace blend.
@@ -421,11 +424,11 @@ class Face:
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength,
+            softness=softness,
             hue_shift=hue_shift
         )
         if side in ('left', 'both'):
@@ -442,7 +445,7 @@ class Face:
         side: Literal['left', 'right', 'both'] = 'both',
         color: Tuple[int, int, int] = (255, 255, 255),
         opacity: float = 0.3,
-        blur_strength: float = 0.5,
+        softness: float = 0.5,
         size: float = 1.0,
         glitter: float = 0.0,
     ) -> Face:
@@ -456,8 +459,8 @@ class Face:
             side: 'left', 'right', or 'both'.
             color: RGB color tuple, e.g. (255, 255, 255) for white.
             opacity: Highlight strength 0.0-1.0.
-            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
-                this fraction of opacity; center stays 1.0.
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge.
             size: Tear bag size 0.0-1.0. 0.0 collapses the outer edge onto the
                 lash line (no visible tear bag); 1.0 is the full natural ridge.
             glitter: Glitter (lamé) effect intensity 0.0-1.0.
@@ -474,12 +477,12 @@ class Face:
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         self._validate_glitter(glitter)
         params = TearBagHighlightParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength,
+            softness=softness,
             size=size,
             glitter=glitter,
         )
@@ -498,7 +501,7 @@ class Face:
         color: Tuple[int, int, int] = (150, 110, 90),
         opacity: float = 0.4,
         thickness: int = 2,
-        blur_strength: float = 0.5,
+        softness: float = 0.5,
         size: float = 1.0,
     ) -> Face:
         """
@@ -510,8 +513,8 @@ class Face:
             color: RGB color tuple, e.g. (150, 110, 90) for a soft brown.
             opacity: Shadow strength 0.0-1.0.
             thickness: Line thickness (pixels, >= 1).
-            blur_strength: Edge attenuation factor (0.0-1.0). Boundary retains
-                this fraction of opacity; center stays 1.0.
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge.
             size: Shadow position 0.0-1.0. Should match tear_bag_highlight size
                 so highlight and shadow track together.
 
@@ -524,12 +527,12 @@ class Face:
         self._validate_side(side)
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         params = TearBagShadowParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
             thickness=thickness,
-            blur_strength=blur_strength,
+            softness=softness,
             size=size,
         )
         if side in ('left', 'both'):
@@ -546,7 +549,7 @@ class Face:
         *,
         color: Tuple[int, int, int],
         opacity: float = 0.3,
-        blur_strength: float = 0.5
+        softness: float = 0.5
     ) -> Face:
         """
         Add foundation (full-face skin tone) makeup.
@@ -557,7 +560,8 @@ class Face:
         Args:
             color: RGB color tuple matching the desired skin tone.
             opacity: Makeup strength 0.0-1.0.
-            blur_strength: Edge attenuation factor (0.0-1.0).
+            softness: Feather width as a face-size ratio (0.0-1.0).
+                Larger values produce a wider/softer edge.
 
         Returns:
             Self for chaining.
@@ -567,11 +571,11 @@ class Face:
         """
         self._validate_color(color)
         self._validate_opacity(opacity)
-        self._validate_blur_strength(blur_strength)
+        self._validate_softness(softness)
         params = PartParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
-            blur_strength=blur_strength
+            softness=softness
         )
         self._makeup_passes.append(FoundationPass(params))
         self._notify_change()

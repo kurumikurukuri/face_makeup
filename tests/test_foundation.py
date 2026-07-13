@@ -8,7 +8,7 @@ from face_makeup.core.passes.foundation import (
     FoundationMaskStrategy,
     FoundationBlendStrategy,
     FoundationPass,
-    blur_kernel_from_strength,
+    _EXCLUSION_REGIONS,
 )
 from face_makeup.core.types import PartParams, ColorParams
 
@@ -18,7 +18,7 @@ class TestFoundationMaskStrategy:
 
     @pytest.fixture
     def strategy(self):
-        return FoundationMaskStrategy(blur_kernel=(5, 5))
+        return FoundationMaskStrategy(softness=1.0)
 
     @pytest.fixture
     def oval_coords(self):
@@ -45,27 +45,27 @@ class TestFoundationMaskStrategy:
         mask = strategy.generate(oval_coords, shape)
         assert mask.shape == shape
 
-    def test_output_dtype_uint8(self, strategy, oval_coords, test_indices, monkeypatch):
+    def test_output_dtype_float32(self, strategy, oval_coords, test_indices, monkeypatch):
         monkeypatch.setattr(
             "face_makeup.core.passes.foundation.FACE_OVAL_INDICES", test_indices
         )
         mask = strategy.generate(oval_coords, (100, 100))
-        assert mask.dtype == np.uint8
+        assert mask.dtype == np.float32
 
-    def test_mask_has_values_between_0_and_255(self, strategy, oval_coords, test_indices, monkeypatch):
+    def test_mask_has_values_between_0_and_1(self, strategy, oval_coords, test_indices, monkeypatch):
         monkeypatch.setattr(
             "face_makeup.core.passes.foundation.FACE_OVAL_INDICES", test_indices
         )
         mask = strategy.generate(oval_coords, (100, 100))
-        assert mask.min() >= 0
-        assert mask.max() <= 255
+        assert mask.min() >= 0.0
+        assert mask.max() <= 1.0
 
     def test_center_is_filled(self, strategy, oval_coords, test_indices, monkeypatch):
         monkeypatch.setattr(
             "face_makeup.core.passes.foundation.FACE_OVAL_INDICES", test_indices
         )
         mask = strategy.generate(oval_coords, (100, 100))
-        assert mask[50, 50] > 0
+        assert mask[50, 50] > 0.0
 
     def test_corners_are_zero(self, strategy, oval_coords, test_indices, monkeypatch):
         monkeypatch.setattr(
@@ -77,25 +77,59 @@ class TestFoundationMaskStrategy:
         assert mask[99, 0] == 0
         assert mask[99, 99] == 0
 
-    def test_blur_creates_soft_edges(self, strategy, oval_coords, test_indices, monkeypatch):
+    def test_soft_edges_produce_gradient(self, oval_coords, test_indices, monkeypatch):
         monkeypatch.setattr(
             "face_makeup.core.passes.foundation.FACE_OVAL_INDICES", test_indices
         )
-        mask = strategy.generate(oval_coords, (100, 100))
-        unique = np.unique(mask)
-        assert len(unique) > 2  # More than just 0 and 255
+        # High softness → wide feather band visible even on small synthetic masks.
+        s = FoundationMaskStrategy(softness=1.0)
+        mask = s.generate(oval_coords, (100, 100))
+        unique = np.unique(np.round(mask, 2))
+        assert len(unique) > 2  # More than just 0.0 and (near) 1.0
 
-    def test_larger_blur_kernel(self, oval_coords, test_indices, monkeypatch):
+    def test_lower_softness_produces_sharper_edge(self, oval_coords, test_indices, monkeypatch):
         monkeypatch.setattr(
             "face_makeup.core.passes.foundation.FACE_OVAL_INDICES", test_indices
         )
-        sharp = FoundationMaskStrategy(blur_kernel=(1, 1))
-        soft = FoundationMaskStrategy(blur_kernel=(31, 31))
+        sharp = FoundationMaskStrategy(softness=0.0)
+        soft = FoundationMaskStrategy(softness=1.0)
         mask_sharp = sharp.generate(oval_coords, (100, 100))
         mask_soft = soft.generate(oval_coords, (100, 100))
-        sharp_255_count = np.sum(mask_sharp == 255)
-        soft_255_count = np.sum(mask_soft == 255)
-        assert soft_255_count <= sharp_255_count
+        sharp_ones_count = np.sum(mask_sharp > 0.99)
+        soft_ones_count = np.sum(mask_soft > 0.99)
+        assert soft_ones_count <= sharp_ones_count
+
+    def test_generated_mask_has_full_oval_without_exclusion_holes(self, monkeypatch):
+        """Mask strategy generates a full face oval — exclusion holes
+        are NOT carved here; the renderer handles them later."""
+        h, w = 200, 200
+        n_oval = 36
+        n_total = 60
+        coords = np.zeros((n_total, 2), dtype=np.float32)
+        angles = np.linspace(0, 2 * np.pi, n_oval, endpoint=False)
+        coords[:n_oval, 0] = 100 + 80 * np.cos(angles)
+        coords[:n_oval, 1] = 100 + 80 * np.sin(angles)
+
+        # Put exclusion-region points in the centre of the oval
+        coords[36] = [85, 85]
+        coords[37] = [115, 85]
+        coords[38] = [115, 115]
+        coords[39] = [85, 115]
+
+        monkeypatch.setattr(
+            "face_makeup.core.passes.foundation.FACE_OVAL_INDICES",
+            list(range(n_oval)),
+        )
+
+        strategy = FoundationMaskStrategy(softness=0.0)
+        mask = strategy.generate(coords, (h, w))
+
+        # The centre (where exclusion points are) should be filled,
+        # because the strategy no longer subtracts exclusion regions.
+        assert mask[100, 100] > 0.0, (
+            "Mask strategy should NOT carve exclusions; "
+            f"got {mask[100, 100]} at centre"
+        )
 
 
 class TestFoundationBlendStrategy:
@@ -208,11 +242,11 @@ class TestFoundationPass:
         p = FoundationPass(params=params)
         assert p.priority == 0
 
-    def test_excludes_eyes_eyelids_and_lips_via_landmarks(self, params):
-        """Eye interiors, full eyelids, and lips are always excluded via
-        exclusion_landmarks — no longer conditional on pass presence."""
+    def test_exclusion_landmarks_set_on_pass(self, params):
+        """Exclusion regions are passed as exclusion_landmarks so the
+        renderer applies them via the standard AND NOT gate."""
         p = FoundationPass(params=params)
-        assert len(p.exclusion_landmarks) == 6  # 2 eyes + 2 eyelids + 2 lips
+        assert len(p.exclusion_landmarks) == 6  # eyes + eyelids + lips
 
     def test_has_mask_strategy(self, params):
         p = FoundationPass(params=params)
@@ -222,66 +256,45 @@ class TestFoundationPass:
         p = FoundationPass(params=params)
         assert isinstance(p.blend_strategy, FoundationBlendStrategy)
 
-    def test_custom_blur_kernel(self, params):
-        p = FoundationPass(params=params, blur_kernel=(15, 15))
-        assert p.mask_strategy._blur_kernel == (15, 15)
-
-    def test_default_blur_kernel_matches_default_strength(self, params):
-        """params.blur_strength defaults to 0.5, reproducing the original (31, 31) kernel."""
+    def test_mask_strategy_stores_softness(self, params):
+        """FoundationPass wires params.softness → strategy._softness."""
         p = FoundationPass(params=params)
-        assert p.mask_strategy._blur_kernel == (31, 31)
+        assert p.mask_strategy._softness == 0.5
 
-    def test_exclusion_landmarks_set(self, params):
-        """exclusion_landmarks must include eye interiors, eyelids, and lips."""
-        p = FoundationPass(params=params)
-        assert len(p.exclusion_landmarks) == 6
-        # Each group is a list of landmark indices
-        for group in p.exclusion_landmarks:
+    def test_exclusion_regions_defined(self):
+        """_EXCLUSION_REGIONS constant is defined and passed as
+        exclusion_landmarks to the pipeline via FoundationPass.__init__."""
+        assert len(_EXCLUSION_REGIONS) == 6  # 2 eyes + 2 eyelids + 2 lips
+        for group in _EXCLUSION_REGIONS:
             assert isinstance(group, list)
             assert len(group) > 0
             assert all(isinstance(i, int) for i in group)
 
-    def test_lips_in_exclusion_landmarks(self, params):
-        """Lips MUST be in exclusion_landmarks — always excluded, not
-        conditional on a lips pass being present."""
-        p = FoundationPass(params=params)
-        # At least one exclusion_landmark group should contain lip-range
-        # indices (upper lip ~0-20, lower lip ~270-320).
+    def test_lips_in_exclusion_regions(self):
+        """Lips MUST be in _EXCLUSION_REGIONS — always excluded via the
+        renderer's exclusion_landmarks gate, not conditional on a lips
+        pass being present."""
         has_upper = False
         has_lower = False
-        for group in p.exclusion_landmarks:
+        for group in _EXCLUSION_REGIONS:
             if any(0 <= idx <= 25 for idx in group):
                 has_upper = True
             if any(260 <= idx <= 330 for idx in group):
                 has_lower = True
-        assert has_upper, "No upper-lip-range indices found in exclusion_landmarks"
-        assert has_lower, "No lower-lip-range indices found in exclusion_landmarks"
+        assert has_upper, "No upper-lip-range indices found in _EXCLUSION_REGIONS"
+        assert has_lower, "No lower-lip-range indices found in _EXCLUSION_REGIONS"
 
-    def test_blur_kernel_derived_from_params_blur_strength(self):
-        """params.blur_strength drives the mask blur kernel (previously ignored)."""
+    def test_params_softness_flows_to_strategy(self):
+        """Higher params.softness → higher strategy._softness."""
         low = PartParams(
             color_params=ColorParams(target_rgb=(200, 200, 200)),
-            opacity=0.3, blur_strength=0.0,
+            opacity=0.3, softness=0.0,
         )
         high = PartParams(
             color_params=ColorParams(target_rgb=(200, 200, 200)),
-            opacity=0.3, blur_strength=1.0,
+            opacity=0.3, softness=1.0,
         )
         p_low = FoundationPass(params=low)
         p_high = FoundationPass(params=high)
-        assert p_low.mask_strategy._blur_kernel[0] < p_high.mask_strategy._blur_kernel[0]
-
-
-class TestBlurKernelFromStrength:
-    """Tests for the blur_strength -> Gaussian kernel size mapping."""
-
-    def test_default_strength_matches_original_fixed_kernel(self):
-        assert blur_kernel_from_strength(0.5) == (31, 31)
-
-    def test_zero_strength_is_minimal_kernel(self):
-        assert blur_kernel_from_strength(0.0) == (1, 1)
-
-    def test_kernel_size_is_always_odd(self):
-        for strength in (0.0, 0.1, 0.3, 0.5, 0.7, 1.0):
-            size, _ = blur_kernel_from_strength(strength)
-            assert size % 2 == 1
+        assert p_low.mask_strategy._softness == 0.0
+        assert p_high.mask_strategy._softness == 1.0

@@ -10,14 +10,113 @@ import cv2
 import numpy as np
 
 
-def soften_mask(mask: np.ndarray, blur_strength: float) -> np.ndarray:
-    """Soften mask edges using distance-based attenuation.
+# Opacity retained at the very mask edge. The feather ramps from this floor up
+# to 1.0 across the feather band, so the boundary keeps a little colour (no hard
+# 0→opacity step) while the old floor-rim all but disappears. This is the
+# fallback default; passes override it per-part via the ``PartParams`` subclass
+# ``_SOFTEN_FLOOR`` ClassVar (e.g. cheek / eyelid = 0.05).
+_SOFTEN_FLOOR = 0.1
+
+# softness (0..1) → feather width as a fraction of the inter-ocular span:
+#   feather_px = softness * feather_scale * inter_ocular_distance(coords)
+# ``_FEATHER_SCALE`` is the fallback default shared by every pass that does
+# not override it. Per-part calibration now lives on the ``PartParams``
+# subclasses as ``_FEATHER_SCALE`` ClassVars (e.g. cheek = 0.15, eyelid = 0.10),
+# threaded into this function via the ``feather_scale`` argument. Resolution-
+# independent by construction.
+_FEATHER_SCALE = 0.04
+
+# Outer eye-corner landmark IDs (MediaPipe 468 face mesh). Their Euclidean
+# separation is a tilt- and crop-robust facial-scale reference, always present
+# in the standard mesh (unlike the refined iris points 468-477).
+_OUTER_EYE_CORNER_LEFT = 33
+_OUTER_EYE_CORNER_RIGHT = 263
+
+
+def _smootherstep(t: np.ndarray) -> np.ndarray:
+    """Ken Perlin's smootherstep ``6t⁵ − 15t⁴ + 10t³`` on t ∈ [0, 1].
+
+    Zero first and second derivatives at both ends, so the feather ramp meets
+    the flat interior and the outer edge without a Mach-band ridge.
+    """
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+
+def inter_ocular_distance(coords: np.ndarray) -> float:
+    """Euclidean outer-eye-corner span in pixels — a robust facial scale.
+
+    Returns 0.0 when the corner landmarks are unavailable (e.g. the small
+    synthetic coordinate arrays used in tests), letting callers fall back to an
+    image-scale estimate.
+    """
+    if len(coords) <= _OUTER_EYE_CORNER_RIGHT:
+        return 0.0
+    a = coords[_OUTER_EYE_CORNER_LEFT].astype(np.float64)
+    b = coords[_OUTER_EYE_CORNER_RIGHT].astype(np.float64)
+    return float(np.hypot(b[0] - a[0], b[1] - a[1]))
+
+
+def feather_px_from_softness(
+    softness: float,
+    coords: np.ndarray,
+    image_shape: tuple[int, int],
+    feather_scale: float = _FEATHER_SCALE,
+) -> float:
+    """Convert a 0..1 softness into an absolute feather width in pixels.
+
+    The width is a fixed fraction of the inter-ocular span, so the same
+    softness yields a proportionally identical fade at any resolution or crop.
+    When eye-corner landmarks are missing, falls back to a fraction of the
+    smaller image dimension as a rough facial scale.
+
+    Args:
+        softness: Feather width as a face-size ratio (0.0-1.0); larger is
+            softer. ``<= 0`` disables feathering.
+        coords: Landmark pixel coordinates (used for the inter-ocular span).
+        image_shape: (height, width) — the fallback scale source.
+        feather_scale: Multiplier mapping softness → feather fraction of the
+            inter-ocular span. Defaults to the module-level ``_FEATHER_SCALE``
+            fallback; passes override it with their per-part calibration
+            (read off the ``PartParams`` subclass ``_FEATHER_SCALE`` ClassVar).
+
+    Returns:
+        Feather band width in pixels (0.0 when softness <= 0).
+    """
+    if softness <= 0.0:
+        return 0.0
+    reference = inter_ocular_distance(coords)
+    if reference <= 1.0:
+        reference = 0.5 * float(min(image_shape[0], image_shape[1]))
+    return softness * feather_scale * reference
+
+
+def soften_mask(
+    mask: np.ndarray,
+    feather_px: float,
+    soften_floor: float = _SOFTEN_FLOOR,
+) -> np.ndarray:
+    """Feather mask edges over a fixed pixel width, size-independent.
+
+    The interior stays a flat 1.0 plateau; only the outer ``feather_px`` band
+    ramps — via smootherstep — from ``soften_floor`` at the boundary up to 1.0.
+    Unlike the old ``dist / dist.max()`` attenuation, the ramp width no longer
+    scales with the mask's thickness, so a thin eyeshadow band and a broad cheek
+    receive the same physical softness and an asymmetric distance field can no
+    longer thin one side.
+
+    ``feather_px`` is clamped to the mask's half-thickness (its maximum distance
+    transform value), so a band thinner than the feather still reaches full
+    opacity along its centreline instead of washing out entirely.
 
     Args:
         mask: Input mask (uint8 0/255 or float32 0.0-1.0).
-        blur_strength: Edge attenuation factor (0.0-1.0).
-            Boundary pixels retain this fraction of opacity,
-            center pixels stay at 1.0.
+        feather_px: Feather band width in pixels. ``<= 0`` returns the mask as a
+            hard-edged float32 (no feather).
+        soften_floor: Opacity retained at the very mask edge; the ramp rises
+            from this floor up to 1.0. Defaults to the module-level
+            ``_SOFTEN_FLOOR`` fallback; passes override it with their per-part
+            calibration (read off the ``PartParams`` subclass ``_SOFTEN_FLOOR``
+            ClassVar).
 
     Returns:
         Softened mask as float32 (0.0-1.0).
@@ -27,19 +126,22 @@ def soften_mask(mask: np.ndarray, blur_strength: float) -> np.ndarray:
     else:
         soft_mask = mask.astype(np.float32)
 
-    if blur_strength <= 0:
+    if feather_px <= 0.0:
         return soft_mask
 
     binary = (soft_mask > 0.5).astype(np.uint8)
     if binary.max() == 0:
         return soft_mask
 
-    dist = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
-    max_dist = dist.max()
-    dist_norm = dist / max_dist if max_dist > 0 else dist
-    attenuation = blur_strength + (1.0 - blur_strength) * dist_norm
+    dist = cv2.distanceTransform(binary, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+    # Never feather wider than the shape's half-thickness, or a thin band would
+    # never reach its full-opacity centreline.
+    effective = min(float(feather_px), float(dist.max()))
+    effective = max(effective, 1e-6)
 
-    return soft_mask * attenuation
+    t = np.clip(dist / effective, 0.0, 1.0)
+    ramp = soften_floor + (1.0 - soften_floor) * _smootherstep(t)
+    return np.clip(soft_mask * ramp, 0.0, 1.0)
 
 
 def apply_target_color(
@@ -136,15 +238,16 @@ def apply_hue_shift_blend(
     mask: np.ndarray,
     target_rgb: tuple[int, int, int],
     opacity: float,
-    blur_strength: float,
+    feather_px: float,
 ) -> np.ndarray:
     """Soften a hard mask then hue-shift blend (fade + color in one call).
 
     Convenience wrapper kept for direct callers; the composable pipeline
     softens in the mask stage and calls :func:`blend_hue_shift` directly.
+    ``feather_px`` is the feather band width in pixels (see :func:`soften_mask`).
     """
     return blend_hue_shift(
-        image, soften_mask(mask, blur_strength), target_rgb, opacity
+        image, soften_mask(mask, feather_px), target_rgb, opacity
     )
 
 
@@ -289,7 +392,7 @@ def standard_blend(
     mask: np.ndarray,
     target_rgb: tuple[int, int, int],
     opacity: float,
-    blur_strength: float,
+    feather_px: float,
 ) -> np.ndarray:
     """Soften a hard mask then matte blend (fade + color in one call).
 
@@ -301,9 +404,9 @@ def standard_blend(
         mask: Mask float32 (0.0-1.0) or uint8 (0/255).
         target_rgb: Target color as (R, G, B) 0-255.
         opacity: Opacity (0.0-1.0).
-        blur_strength: Edge attenuation factor (0.0-1.0).
+        feather_px: Feather band width in pixels (see :func:`soften_mask`).
 
     Returns:
         RGB uint8 image with makeup applied.
     """
-    return blend_matte(image, soften_mask(mask, blur_strength), target_rgb, opacity)
+    return blend_matte(image, soften_mask(mask, feather_px), target_rgb, opacity)

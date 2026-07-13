@@ -19,6 +19,7 @@ from face_makeup.constants import (
     LIPS_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
+from face_makeup.core.blend.blend_utils import feather_px_from_softness, soften_mask
 from face_makeup.core.types import PartParams
 
 # Landmark groups always excluded from the foundation mask by the renderer
@@ -45,15 +46,16 @@ _EXCLUSION_REGIONS: List[List[int]] = [
 
 
 class FoundationMaskStrategy(MaskStrategy):
-    """Face oval convex hull mask with Gaussian blur edge softening.
+    """Face oval convex hull mask with distance-based edge softening.
 
-    Exclusions (eye interiors, eyelids, lips) are applied by the renderer
-    via ``FoundationPass.exclusion_landmarks`` — the mask strategy itself
-    only defines the face-oval shape.
+    Generates the base face-oval geometry with soft edges.  Exclusion of
+    eye and lip regions is applied by the renderer via ``exclusion_landmarks``
+    so that the distance-based fade is computed on the full geometry before
+    any holes are carved.
     """
 
-    def __init__(self, blur_kernel: tuple[int, int] = (31, 31)):
-        self._blur_kernel = blur_kernel
+    def __init__(self, softness: float = 0.5):
+        self._softness = softness
 
     def generate(
         self,
@@ -71,8 +73,10 @@ class FoundationMaskStrategy(MaskStrategy):
         hull = cv2.convexHull(oval_points.astype(np.int32))
         cv2.fillConvexPoly(mask, hull, 255)
 
-        mask = cv2.GaussianBlur(mask, self._blur_kernel, 0)
-        return mask
+        # Distance-based feather using the shared soften_mask path — consistent
+        # edge profile with every other pass.
+        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+        return soften_mask(mask, feather_px)
 
 
 class FoundationBlendStrategy(BlendStrategy):
@@ -94,40 +98,21 @@ class FoundationBlendStrategy(BlendStrategy):
         return np.clip(result * 255.0, 0, 255).astype(np.uint8)
 
 
-def blur_kernel_from_strength(blur_strength: float) -> tuple[int, int]:
-    """Map a 0.0-1.0 blur_strength to an odd-sized Gaussian kernel.
-
-    0.5 (the ``PartParams`` default) reproduces the original fixed
-    (31, 31) kernel, so existing callers see no behaviour change.
-    """
-    size = max(1, round(blur_strength * 60))
-    if size % 2 == 0:
-        size += 1
-    return (size, size)
-
-
 class FoundationPass(MakeupPass):
     """Full-face foundation with skin-tone overlay.
 
     Eye interiors, full eyelid regions, and lips are always carved out
-    via ``exclusion_landmarks`` (landmark polygons subtracted by the
-    renderer after the fade), regardless of which other passes are
-    present in the same render.
+    by the renderer via ``exclusion_landmarks`` after the fade, regardless
+    of which other passes are present in the same render.
     """
 
-    def __init__(
-        self,
-        params: PartParams,
-        blur_kernel: tuple[int, int] | None = None,
-    ):
-        if blur_kernel is None:
-            blur_kernel = blur_kernel_from_strength(params.blur_strength)
+    def __init__(self, params: PartParams):
         super().__init__(
             pass_type="foundation",
             priority=0,
             params=params,
             landmark_indices=list(FACE_OVAL_INDICES),
-            mask_strategy=FoundationMaskStrategy(blur_kernel=blur_kernel),
+            mask_strategy=FoundationMaskStrategy(softness=params.softness),
             blend_strategy=FoundationBlendStrategy(),
             exclusion_landmarks=_EXCLUSION_REGIONS,
         )

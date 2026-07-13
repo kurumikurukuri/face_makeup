@@ -3,14 +3,16 @@ Lip makeup pass — polygon mask + HSV-aware blend.
 """
 from __future__ import annotations
 
-from typing import List
-
 import cv2
 import numpy as np
 
 from face_makeup.constants import LIPS_INDICES
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import blend_matte, soften_mask
+from face_makeup.core.blend.blend_utils import (
+    blend_matte,
+    feather_px_from_softness,
+    soften_mask,
+)
 from face_makeup.core.types import LipsParams
 
 # OpenCV sub-pixel precision bits for anti-aliased fillPoly.
@@ -24,8 +26,8 @@ class LipMaskStrategy(MaskStrategy):
     pipeline can apply exclusions to it before blending.
     """
 
-    def __init__(self, blur_strength: float):
-        self._blur_strength = blur_strength
+    def __init__(self, softness: float):
+        self._softness = softness
 
     def generate(
         self,
@@ -37,6 +39,8 @@ class LipMaskStrategy(MaskStrategy):
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
+
+        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
 
         shift = _SUBPIXEL_BITS
         scale = 1 << shift
@@ -50,7 +54,7 @@ class LipMaskStrategy(MaskStrategy):
             cv2.fillPoly(part_mask, [points_shifted], 255, shift=shift)
             mask = cv2.bitwise_or(mask, part_mask)
 
-        return soften_mask(mask, self._blur_strength)
+        return soften_mask(mask, feather_px)
 
 
 class LipBlendStrategy(BlendStrategy):
@@ -81,6 +85,6 @@ class LipsPass(MakeupPass):
             priority=20,
             params=params,
             landmark_indices=list(LIPS_INDICES["upper"]) + list(LIPS_INDICES["lower"]),
-            mask_strategy=LipMaskStrategy(params.blur_strength),
+            mask_strategy=LipMaskStrategy(params.softness),
             blend_strategy=LipBlendStrategy(),
         )

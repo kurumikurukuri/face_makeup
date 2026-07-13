@@ -180,7 +180,7 @@ class TestEyeShadowBlendStrategy:
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=(80, 60, 200)),
             opacity=0.8,
-            blur_strength=0.3,
+            softness=0.3,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert result.shape == solid_gray.shape
@@ -192,7 +192,7 @@ class TestEyeShadowBlendStrategy:
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=(80, 60, 200)),
             opacity=0.8,
-            blur_strength=0.3,
+            softness=0.3,
         )
         zero_mask = np.zeros((100, 100), dtype=np.float32)
         result = strategy.apply(solid_gray, zero_mask, params)
@@ -204,7 +204,7 @@ class TestEyeShadowBlendStrategy:
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=(80, 60, 200)),
             opacity=0.0,
-            blur_strength=0.3,
+            softness=0.3,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result, solid_gray)
@@ -215,7 +215,7 @@ class TestEyeShadowBlendStrategy:
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=(80, 60, 200)),
             opacity=1.0,
-            blur_strength=0.0,
+            softness=0.0,
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result[0:10, 0:10], solid_gray[0:10, 0:10])

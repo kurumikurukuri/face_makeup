@@ -77,7 +77,7 @@ def _probe_pass(soft_mask):
 def _soft_disk(size=64, radius=22):
     hard = np.zeros((size, size), dtype=np.uint8)
     cv2.circle(hard, (size // 2, size // 2), radius, 255, -1)
-    return soften_mask(hard, 0.5)   # distance-based fade on the SOLID disk
+    return soften_mask(hard, 8.0)   # 8 px feather band on a ~22 px radius disk
 
 
 def _render_probe(soft_mask, hair_mask=None):

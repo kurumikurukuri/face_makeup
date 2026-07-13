@@ -13,7 +13,11 @@ from face_makeup.constants import (
 )
 from face_makeup.core.eyeliner_corrector import EyelinerCorrector
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import blend_matte, soften_mask
+from face_makeup.core.blend.blend_utils import (
+    blend_matte,
+    feather_px_from_softness,
+    soften_mask,
+)
 from face_makeup.core.types import EyeLinerParams
 
 # OpenCV sub-pixel precision bits for anti-aliased polylines.
@@ -32,14 +36,14 @@ class EyelinerMaskStrategy(MaskStrategy):
         self,
         part_name: str,
         thickness: int = 2,
-        blur_strength: float = 0.5,
+        softness: float = 0.5,
     ):
         self._part_name = part_name
         self._indices_dict = _INDICES_MAP[part_name]
         self._correction_map = EYELINER_CORRECTION_MAP.get(part_name, {})
         self._corrector = EyelinerCorrector()
         self._thickness = thickness
-        self._blur_strength = blur_strength
+        self._softness = softness
 
     def generate(
         self,
@@ -52,6 +56,8 @@ class EyelinerMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
+        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+
         if image is not None and self._correction_map:
             mask = self._generate_corrected(coords, image_shape, image)
         else:
@@ -63,7 +69,7 @@ class EyelinerMaskStrategy(MaskStrategy):
             kernel = np.ones((self._thickness, self._thickness), np.uint8)
             mask = cv2.dilate(mask, kernel, iterations=1)
 
-        return soften_mask(mask, self._blur_strength)
+        return soften_mask(mask, feather_px)
 
     def _generate_simple(
         self, coords: np.ndarray, image_shape: tuple[int, int]
@@ -152,7 +158,7 @@ class EyelinerPass(MakeupPass):
             params=params,
             landmark_indices=indices,
             mask_strategy=EyelinerMaskStrategy(
-                part_name, params.thickness, params.blur_strength
+                part_name, params.thickness, params.softness
             ),
             blend_strategy=EyelinerBlendStrategy(),
         )

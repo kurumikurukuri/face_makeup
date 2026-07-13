@@ -319,46 +319,46 @@ class TestOpacityValidation:
 
 
 class TestBlurStrengthValidation:
-    """Tests for blur_strength parameter validation."""
+    """Tests for softness parameter validation."""
 
-    def test_lip_invalid_blur_strength_too_high(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.lip(color=(255, 100, 100), blur_strength=1.5)
+    def test_lip_invalid_softness_too_high(self, face):
+        with pytest.raises(ValueError, match="softness must be"):
+            face.lip(color=(255, 100, 100), softness=1.5)
 
-    def test_lip_invalid_blur_strength_negative(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.lip(color=(255, 100, 100), blur_strength=-0.1)
+    def test_lip_invalid_softness_negative(self, face):
+        with pytest.raises(ValueError, match="softness must be"):
+            face.lip(color=(255, 100, 100), softness=-0.1)
 
-    def test_lip_invalid_blur_strength_string(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.lip(color=(255, 100, 100), blur_strength="0.5")
+    def test_lip_invalid_softness_string(self, face):
+        with pytest.raises(ValueError, match="softness must be"):
+            face.lip(color=(255, 100, 100), softness="0.5")
 
-    def test_cheek_invalid_blur_strength(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.cheek(color=(255, 180, 180), blur_strength=2.0)
+    def test_cheek_invalid_softness(self, face):
+        with pytest.raises(ValueError, match="softness must be"):
+            face.cheek(color=(255, 180, 180), softness=2.0)
 
-    def test_eyelid_invalid_blur_strength(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.eyelid(color=(180, 130, 150), blur_strength=-1.0)
+    def test_eyelid_invalid_softness(self, face):
+        with pytest.raises(ValueError, match="softness must be"):
+            face.eyelid(color=(180, 130, 150), softness=-1.0)
 
-    def test_eyeliner_invalid_blur_strength(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.eyeliner(color=(0, 0, 0), blur_strength=5.0)
+    def test_eyeliner_invalid_softness(self, face):
+        with pytest.raises(ValueError, match="softness must be"):
+            face.eyeliner(color=(0, 0, 0), softness=5.0)
 
-    def test_eyeiris_invalid_blur_strength(self, face):
-        with pytest.raises(ValueError, match="blur_strength must be"):
-            face.eyeiris(color=(100, 150, 255), blur_strength=-0.5)
+    def test_eyeiris_invalid_softness(self, face):
+        with pytest.raises(ValueError, match="softness must be"):
+            face.eyeiris(color=(100, 150, 255), softness=-0.5)
 
-    def test_valid_blur_strength_boundary_zero(self, face):
-        face.lip(color=(255, 100, 100), blur_strength=0.0)
+    def test_valid_softness_boundary_zero(self, face):
+        face.lip(color=(255, 100, 100), softness=0.0)
         assert len(face.makeup_passes) == 1
 
-    def test_valid_blur_strength_boundary_one(self, face):
-        face.lip(color=(255, 100, 100), blur_strength=1.0)
+    def test_valid_softness_boundary_one(self, face):
+        face.lip(color=(255, 100, 100), softness=1.0)
         assert len(face.makeup_passes) == 1
 
-    def test_valid_blur_strength_integer(self, face):
-        face.lip(color=(255, 100, 100), blur_strength=1)
+    def test_valid_softness_integer(self, face):
+        face.lip(color=(255, 100, 100), softness=1)
         assert len(face.makeup_passes) == 1
 
 
@@ -372,12 +372,12 @@ class TestPartParamsValidation:
                 opacity=1.5
             )
 
-    def test_invalid_blur_strength_via_dataclass(self):
-        with pytest.raises(ValueError, match="blur_strength must be"):
+    def test_invalid_softness_via_dataclass(self):
+        with pytest.raises(ValueError, match="softness must be"):
             LipsParams(
                 color_params=ColorParams(target_rgb=(255, 100, 100)),
                 opacity=0.5,
-                blur_strength=2.0
+                softness=2.0
             )
 
     def test_negative_opacity_via_dataclass(self):
@@ -387,12 +387,12 @@ class TestPartParamsValidation:
                 opacity=-0.1
             )
 
-    def test_negative_blur_strength_via_dataclass(self):
-        with pytest.raises(ValueError, match="blur_strength must be"):
+    def test_negative_softness_via_dataclass(self):
+        with pytest.raises(ValueError, match="softness must be"):
             CheekParams(
                 color_params=ColorParams(target_rgb=(255, 180, 180)),
                 opacity=0.3,
-                blur_strength=-0.5,
+                softness=-0.5,
                 center=(0.0, 0.0),
                 radius=(0.5, 0.5)
             )
@@ -897,7 +897,7 @@ class TestTearBag:
         from face_makeup.renderer import Renderer
 
         face.tear_bag_highlight(
-            color=(180, 180, 180), opacity=0.5, blur_strength=0.0, side="left",
+            color=(180, 180, 180), opacity=0.5, softness=0.0, side="left",
         )
         result = Renderer().render_face(test_image.copy(), face)
 
@@ -976,7 +976,7 @@ class TestTearBag:
 
         base = dict(
             color_params=ColorParams(target_rgb=(255, 255, 255)),
-            opacity=1.0, blur_strength=0.0,
+            opacity=1.0, softness=0.0,
         )
         matte = TearBagHighlightBlendStrategy().apply(
             test_image, mask, TearBagHighlightParams(glitter=0.0, **base)
