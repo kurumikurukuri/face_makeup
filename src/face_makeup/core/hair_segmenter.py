@@ -1,8 +1,9 @@
 """
 Hair segmentation using OpenCV DNN + MediaPipe hair_segmentation.tflite.
 
-The model expects 256x256 4-channel input (RGB + previous-frame hair mask)
-and outputs (1, 2, H, W) logits. Channel 0 = background, channel 1 = hair.
+The model expects 256x256 4-channel input — RGB plus the previous frame's
+hair mask (a temporal prior for video; all zeros for still images) — and
+outputs (1, 2, H, W) logits. Channel 0 = background, channel 1 = hair.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ class HairSegmenter:
     """Hair segmentation using OpenCV DNN + hair model.
 
     The model (hair_segmentation.tflite) is loaded via cv2.dnn.readNet.
-    Input is RGB + zeroed previous-mask channel → 256x256 blob.
+    Input is RGB + zero prior-mask channel → 256x256 blob.
     Output is sigmoid(chan1) → threshold → uint8 0/255 mask.
 
     Usage:
@@ -55,14 +56,18 @@ class HairSegmenter:
         try:
             h, w = image.shape[:2]
 
-            # The model's 4th input channel is the previous frame's hair mask
-            # (temporal hint for video), not alpha. Zeros for still images.
+            # The 4th input channel is the PREVIOUS FRAME's hair mask — a
+            # temporal prior for video, not alpha. A saturated prior (255)
+            # tells the model "everything was hair last frame", dragging the
+            # whole person toward hair with striped garbage logits. Still
+            # images have no previous frame, so the prior is all zeros.
             model_input = np.dstack([
                 image,
                 np.zeros((h, w, 1), dtype=np.uint8),
             ])
 
-            # Prepare blob: normalize to [0, 1] and resize to 256x256
+            # Prepare blob: normalize to [0, 1], resize to 256x256,
+            # channel order preserved (swapRB=False)
             blob = cv2.dnn.blobFromImage(
                 model_input,
                 scalefactor=1.0 / 255.0,

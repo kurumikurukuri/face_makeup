@@ -98,6 +98,63 @@ class TestHairSegmenter:
         seg.close()
         assert np.array_equal(img, original)
 
+    def test_prior_mask_channel_is_zero(self):
+        """The model's 4th input channel is the previous-frame hair mask.
+
+        Feeding a saturated prior (255 → 1.0 after blob scaling) tells the
+        model "everything was hair last frame", which drags the whole person
+        toward hair and produces striped garbage masks. For still images the
+        prior must be all zeros. No model file needed — a spy net captures
+        the blob that segment() builds.
+        """
+        captured = {}
+
+        class _SpyNet:
+            def setInput(self, blob):
+                captured["blob"] = blob
+
+            def forward(self):
+                return np.zeros((1, 2, 256, 256), dtype=np.float32)
+
+        seg = HairSegmenter.__new__(HairSegmenter)
+        seg._net = _SpyNet()
+
+        img = np.full((64, 64, 3), 128, dtype=np.uint8)
+        seg.segment(img)
+
+        blob = captured["blob"]
+        assert blob.shape[1] == 4  # RGB + prior-mask channel
+        assert np.all(blob[0, 3] == 0.0)
+
+    def test_segment_portrait_hair_coverage_is_plausible(self, model_path):
+        """Regression guard: on a real portrait the hair mask must stay a
+        hair-sized region, not swallow the whole person (the alpha=255 bug
+        marked ~half the image as hair, punching stripes into every pass).
+        """
+        import cv2
+        from pathlib import Path
+
+        img_path = (
+            Path(__file__).parent
+            / "test_images"
+            / "jimmy-fermin-bqe0J0b26RQ-unsplash.jpg"
+        )
+        if not img_path.exists():
+            pytest.skip("portrait test image not found")
+
+        image_bgr = cv2.imread(str(img_path))
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+        seg = HairSegmenter(model_path)
+        mask = seg.segment(image_rgb)
+        seg.close()
+
+        assert mask is not None
+        hair_fraction = float(np.count_nonzero(mask)) / mask.size
+        assert 0.01 < hair_fraction < 0.35, (
+            f"hair fraction {hair_fraction:.2f} outside plausible range"
+        )
+
 
 class _FakeHairSegmenter:
     """Fake segmenter that returns a fixed mask — avoids loading the real model."""
