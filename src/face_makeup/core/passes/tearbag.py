@@ -94,9 +94,12 @@ def _lerp_outer(
 
     # Per-point ridge weight (inner→outer): tapers the tear bag narrower at the
     # corners and widest at the centre. Length must equal len(ridge_pts).
-    #←内側　外側→
+    # inner side ←  → outer side
     env = np.asarray(envelope, dtype=np.float32)
-    assert len(env) == n, "envelope length must match ridge point count"
+    if len(env) != n:
+        raise ValueError(
+            f"envelope length {len(env)} must match ridge point count {n}"
+        )
     weights = (size * env)[:, np.newaxis]            # (n, 1) → broadcasts over (n, 2)
 
     outer_pts = (1.0 - weights) * lash_lerp + weights * ridge_pts

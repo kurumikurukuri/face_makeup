@@ -307,8 +307,7 @@ def render_sparkle_overlay(
         cv2.fillPoly(overlay, [quad], particle_color.tolist(), cv2.LINE_AA)
 
     # Soften hard polygon edges into faceted sparkles
-    if len(positions) > 0:
-        overlay = cv2.GaussianBlur(overlay, (0, 0), sigmaX=blur_sigma)
+    overlay = cv2.GaussianBlur(overlay, (0, 0), sigmaX=blur_sigma)
 
     return overlay
 
@@ -339,10 +338,11 @@ def apply_bloom(
             ``8.0 + intensity * 16.0``. Higher = wider, softer glow.
 
     Returns:
-        (H, W, 3) uint8 RGB image with bloom applied.
+        (H, W, 3) uint8 RGB image with bloom applied. Always returns a fresh
+        ndarray; the input image is never mutated or returned by reference.
     """
     if intensity <= 0.0 or sparkle_overlay.max() <= 0.0:
-        return image
+        return image.copy()
 
     if bloom_strength is None:
         bloom_strength = 0.3 * intensity
@@ -358,13 +358,13 @@ def apply_bloom(
 
     max_lum = luminance.max()
     if max_lum <= 0.0:
-        return image
+        return image.copy()
 
     # Bright pass
     bright = np.where(luminance > threshold * max_lum, luminance, 0.0).astype(np.float32)
 
     if bright.max() <= 0.0:
-        return image
+        return image.copy()
 
     # Downscale → blur → upscale (4× performance optimization)
     small_h, small_w = max(1, h // 4), max(1, w // 4)

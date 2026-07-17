@@ -171,7 +171,7 @@ def apply_target_color(
     # darkening.
     if target_hsv[1] < 0.05:
         target_v = float(target_hsv[2])
-        gray = np.array([target_v, target_v, target_v], dtype=np.float32)
+        gray = np.full(3, target_v, dtype=np.float32)
         return rgb * (1.0 - blend_weight) + gray * blend_weight
 
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
@@ -214,7 +214,7 @@ def blend_hue_shift(
 
     if target_s < 0.05:
         target_v = float(target_hsv[2])
-        gray = np.array([target_v, target_v, target_v], dtype=np.float32)
+        gray = np.full(3, target_v, dtype=np.float32)
         result_float = image_float * (1.0 - blend_weight) + gray * blend_weight
         return np.clip(result_float * 255.0, 0, 255).astype(np.uint8)
 
@@ -295,7 +295,8 @@ def apply_glitter(
             8.0 + intensity * 16.0.
 
     Returns:
-        RGB uint8 image with glitter overlay applied (new array).
+        RGB uint8 image with glitter overlay applied. Always returns a fresh
+        ndarray; the input image is never mutated or returned by reference.
     """
     from face_makeup.core.blend.glitter import (
         apply_bloom,
@@ -306,13 +307,13 @@ def apply_glitter(
     )
 
     if glitter_intensity <= 0.0:
-        return image
+        return image.copy()
 
     rng = rng or np.random.default_rng()
 
     mask_bool = mask > 0.1
     if not mask_bool.any():
-        return image
+        return image.copy()
 
     # 1. Generate particles
     # density_scale=None defers to generate_particles' own default
@@ -329,7 +330,7 @@ def apply_glitter(
     )
 
     if len(particles.positions) == 0:
-        return image
+        return image.copy()
 
     # 2. Compute per-particle brightness (random static twinkle)
     brightness = compute_static_twinkle(particles.phases)

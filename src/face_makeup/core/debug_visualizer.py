@@ -22,7 +22,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from .blend.glitter import ParticleSet
-    from .types import FaceBBox, FaceLandmarks, CheekParams
+    from .types import FaceBBox, FaceLandmarks
 
 logger = logging.getLogger(__name__)
 

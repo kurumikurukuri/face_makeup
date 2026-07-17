@@ -387,6 +387,28 @@ class TestApplyBloom:
         r2 = apply_bloom(test_image, sparkle_overlay, 0.5)
         assert np.array_equal(r1, r2)
 
+    def test_zero_intensity_returns_distinct_copy(self, test_image, sparkle_overlay):
+        """intensity=0 early return must yield a fresh array, not the input ref.
+
+        Locks the immutability contract: a bare ``return image`` would pass a
+        value-only ``np.array_equal`` check, so we additionally assert the
+        objects are distinct and that mutating the result never bleeds back.
+        """
+        result = apply_bloom(test_image, sparkle_overlay, 0.0)
+        assert result is not test_image
+        assert np.array_equal(result, test_image)
+        result[0, 0] = 0
+        assert test_image[0, 0].tolist() == [128, 128, 128]
+
+    def test_empty_overlay_returns_distinct_copy(self, test_image):
+        """Empty-overlay early return must yield a fresh array, not the input ref."""
+        empty_overlay = np.zeros((100, 100, 3), dtype=np.float32)
+        result = apply_bloom(test_image, empty_overlay, 0.5)
+        assert result is not test_image
+        assert np.array_equal(result, test_image)
+        result[0, 0] = 0
+        assert test_image[0, 0].tolist() == [128, 128, 128]
+
 
 # ── compute_iridescent_colors ─────────────────────────────────────────────────
 
@@ -591,3 +613,23 @@ class TestApplyGlitterIntegration:
         # Bloom adds a halo around bright sparkles — higher strength boosts
         # the peak brightness in the bloom region.
         assert result_high.max() >= result_low.max()
+
+    def test_zero_intensity_returns_distinct_copy(self, test_image, eye_mask, rng):
+        """intensity=0 early return must yield a fresh array, not the input ref."""
+        from face_makeup.core.blend.blend_utils import apply_glitter
+
+        result = apply_glitter(test_image, eye_mask, 0.0, rng=rng)
+        assert result is not test_image
+        assert np.array_equal(result, test_image)
+        result[0, 0] = 0
+        assert test_image[0, 0].tolist() == [128, 128, 128]
+
+    def test_empty_mask_returns_distinct_copy(self, test_image, empty_mask, rng):
+        """Empty-mask early return must yield a fresh array, not the input ref."""
+        from face_makeup.core.blend.blend_utils import apply_glitter
+
+        result = apply_glitter(test_image, empty_mask, 0.5, rng=rng)
+        assert result is not test_image
+        assert np.array_equal(result, test_image)
+        result[0, 0] = 0
+        assert test_image[0, 0].tolist() == [128, 128, 128]

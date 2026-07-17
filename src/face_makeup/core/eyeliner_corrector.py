@@ -75,7 +75,7 @@ class EyelinerCorrector:
 
         filtered = cv2.bilateralFilter(image, 9, 50, 50)
         gray = cv2.cvtColor(filtered, cv2.COLOR_RGB2GRAY)
-        gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        gray = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
 
         # Evict oldest entry when at capacity (FIFO, dead-weakref first).
         if len(self._preprocess_cache) >= self._PREPROCESS_CACHE_MAX:
@@ -233,7 +233,7 @@ class EyelinerCorrector:
         dy = qy - py
         norm = np.hypot(dx, dy)
 
-        if norm == 0:
+        if norm < 1e-6:  # guard against sub-px float residue from landmark rounding
             return (fallback, None) if return_debug_info else fallback
 
         dx /= norm

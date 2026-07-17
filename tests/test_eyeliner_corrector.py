@@ -108,6 +108,21 @@ class TestFindEyelinerEdge:
         assert result == (100, 100)
         assert debug is None
 
+    def test_subpixel_norm_skips_sampling(self, corrector, uniform_gray):
+        """0 < norm < 1e-6 (sub-px landmark-rounding residue) short-circuits.
+
+        The widened guard (norm < 1e-6) must bail before sampling, so the
+        debug dict is None. A strict ``norm == 0`` guard would let norm=1e-7
+        through, run the sampler, and return a populated (non-None) debug
+        dict — so the ``debug is None`` assertion locks the widened range.
+        """
+        result, debug = corrector.find_edge(
+            uniform_gray, 100.0, 100.0, 100.0 + 1e-7, 100.0,
+            return_debug_info=True,
+        )
+        assert result == (100, 100)
+        assert debug is None
+
 
 class TestPreprocess:
     """Tests for EyelinerCorrector.preprocess."""

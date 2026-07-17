@@ -8,6 +8,14 @@ from face_makeup.core.passes.foundation import (
     FoundationPass,
 )
 from face_makeup.core.passes.lips import LipBlendStrategy, LipMaskStrategy, LipsPass
+from face_makeup.core.passes.tearbag import (
+    TearBagHighlightBlendStrategy,
+    TearBagHighlightMaskStrategy,
+    TearBagHighlightPass,
+    TearBagShadowBlendStrategy,
+    TearBagShadowMaskStrategy,
+    TearBagShadowPass,
+)
 
 __all__ = [
     "CheekBlendStrategy",
@@ -28,4 +36,10 @@ __all__ = [
     "LipBlendStrategy",
     "LipMaskStrategy",
     "LipsPass",
+    "TearBagHighlightBlendStrategy",
+    "TearBagHighlightMaskStrategy",
+    "TearBagHighlightPass",
+    "TearBagShadowBlendStrategy",
+    "TearBagShadowMaskStrategy",
+    "TearBagShadowPass",
 ]
