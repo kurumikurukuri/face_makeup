@@ -7,7 +7,7 @@ and makeup layers. Provides a fluent API for applying makeup.
 from __future__ import annotations
 
 import logging
-from typing import Callable, List, Literal, Optional, Tuple
+from typing import Callable, Literal
 
 from face_makeup.core.passes.cheek import CheekPass
 from face_makeup.core.passes.eyeliner import EyelinerPass
@@ -20,12 +20,12 @@ from face_makeup.core.pipeline import MakeupPass
 from face_makeup.core.types import (
     FaceBBox,
     FaceLandmarks,
+    FoundationParams,
     LipsParams,
     CheekParams,
     EyeShadowParams,
     EyeLinerParams,
     ColorParams,
-    PartParams,
     EyeIrisParams,
     TearBagHighlightParams,
     TearBagShadowParams,
@@ -48,7 +48,7 @@ class Face:
     """
 
     @staticmethod
-    def _validate_color(color: Tuple[int, int, int]) -> None:
+    def _validate_color(color: tuple[int, int, int]) -> None:
         """
         Validate RGB color tuple.
 
@@ -164,7 +164,7 @@ class Face:
         face_id: int,
         bbox: FaceBBox,
         landmarks: FaceLandmarks,
-        change_callback: Optional[Callable[[], None]] = None
+        change_callback: Callable[[], None] | None = None
     ):
         """
         Initialize face.
@@ -179,7 +179,7 @@ class Face:
         self._bbox = bbox
         self._landmarks = landmarks
         self._change_callback = change_callback
-        self._makeup_passes: List[MakeupPass] = []
+        self._makeup_passes: list[MakeupPass] = []
 
     @property
     def face_id(self) -> int:
@@ -197,14 +197,14 @@ class Face:
         return self._landmarks
 
     @property
-    def makeup_passes(self) -> List[MakeupPass]:
+    def makeup_passes(self) -> list[MakeupPass]:
         """Get list of makeup passes (copy)."""
         return self._makeup_passes.copy()
 
     def lip(
         self,
         *,
-        color: Tuple[int, int, int],
+        color: tuple[int, int, int],
         opacity: float = 0.5,
         softness: float = 0.5
     ) -> Face:
@@ -240,10 +240,10 @@ class Face:
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
-        color: Tuple[int, int, int],
+        color: tuple[int, int, int],
         opacity: float = 0.3,
-        center: Tuple[float, float] = (0.0, 0.0),
-        radius: Tuple[float, float] = (0.5, 0.5),
+        center: tuple[float, float] = (0.0, 0.0),
+        radius: tuple[float, float] = (0.5, 0.5),
         softness: float = 0.6
     ) -> Face:
         """
@@ -289,7 +289,7 @@ class Face:
         side: Literal['left', 'right', 'both'] = 'both',
         zone: Literal['full', 'outer', 'center', 'inner',
                        'inner_center', 'outer_center'] = 'full',
-        color: Tuple[int, int, int],
+        color: tuple[int, int, int],
         opacity: float = 0.3,
         softness: float = 0.4,
         size: float = 1.0,
@@ -350,7 +350,7 @@ class Face:
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
-        color: Tuple[int, int, int],
+        color: tuple[int, int, int],
         opacity: float = 1.0,
         thickness: int = 2,
         softness: float = 0.5
@@ -394,7 +394,7 @@ class Face:
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
-        color: Tuple[int, int, int],
+        color: tuple[int, int, int],
         opacity: float = 0.5,
         softness: float = 0.1,
         hue_shift: bool = False
@@ -443,7 +443,7 @@ class Face:
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
-        color: Tuple[int, int, int] = (255, 255, 255),
+        color: tuple[int, int, int] = (255, 255, 255),
         opacity: float = 0.3,
         softness: float = 0.5,
         size: float = 1.0,
@@ -498,7 +498,7 @@ class Face:
         self,
         *,
         side: Literal['left', 'right', 'both'] = 'both',
-        color: Tuple[int, int, int] = (150, 110, 90),
+        color: tuple[int, int, int] = (150, 110, 90),
         opacity: float = 0.4,
         thickness: int = 2,
         softness: float = 0.5,
@@ -547,7 +547,7 @@ class Face:
     def foundation(
         self,
         *,
-        color: Tuple[int, int, int],
+        color: tuple[int, int, int],
         opacity: float = 0.3,
         softness: float = 0.5
     ) -> Face:
@@ -572,7 +572,7 @@ class Face:
         self._validate_color(color)
         self._validate_opacity(opacity)
         self._validate_softness(softness)
-        params = PartParams(
+        params = FoundationParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
             softness=softness
@@ -594,7 +594,7 @@ class Face:
         logger.debug(f"Face {self._face_id}: Cleared all makeup layers")
         return self
 
-    def set_change_callback(self, callback: Optional[Callable[[], None]]) -> None:
+    def set_change_callback(self, callback: Callable[[], None] | None) -> None:
         """
         Set callback invoked when makeup layers change.
 

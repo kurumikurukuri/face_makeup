@@ -35,7 +35,6 @@ class LipMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: object | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -65,8 +64,6 @@ class LipBlendStrategy(BlendStrategy):
         image: np.ndarray,
         mask: np.ndarray,
         params: LipsParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: object | None = None,
     ) -> np.ndarray:
         return blend_matte(
@@ -84,7 +81,6 @@ class LipsPass(MakeupPass):
             pass_type="lips",
             priority=20,
             params=params,
-            landmark_indices=list(LIPS_INDICES["upper"]) + list(LIPS_INDICES["lower"]),
             mask_strategy=LipMaskStrategy(params.softness),
             blend_strategy=LipBlendStrategy(),
         )

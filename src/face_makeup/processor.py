@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -36,6 +37,65 @@ _HAIR_MODEL_URL = (
 _HAIR_MODEL_SHA256 = (
     "0bec40bc9ba97c4143f3d4225a935014abffea37c1f3766ae32aba3f2748e711"
 )
+
+
+def _resolve_model_dir(explicit: Optional[str] = None) -> Path:
+    """Resolve the directory containing the hair segmentation model.
+
+    Priority chain (highest first):
+
+    1. *explicit* — caller-supplied path (``ProcessorConfig.model_dir``).
+    2. ``FACE_MAKEUP_MODEL_DIR`` environment variable.
+    3. Source-checkout ``models/`` directory, detected by checking whether the
+       ``__file__``-relative path exists. This keeps ``pip install -e .`` and
+       direct ``PYTHONPATH`` usage working without extra configuration.
+    4. Platform cache directory (always writable for auto-download):
+
+       - **Windows**: ``%LOCALAPPDATA%/face_makeup/models/``
+       - **macOS**: ``~/Library/Caches/face_makeup/models/``
+       - **Linux**: ``$XDG_CACHE_HOME/face_makeup/models/`` (falls back to
+         ``~/.cache/face_makeup/models/``).
+
+    Returns:
+        Absolute path to the model directory (created if it doesn't exist
+        for the platform-cache fallback).
+    """
+    # 1. Explicit caller-supplied path
+    if explicit:
+        return Path(explicit).resolve()
+
+    # 2. Environment variable
+    env_dir = os.environ.get("FACE_MAKEUP_MODEL_DIR")
+    if env_dir:
+        return Path(env_dir).resolve()
+
+    # 3. Source-checkout detection
+    source_models = (
+        Path(__file__).resolve().parent.parent.parent / "models"
+    )
+    if source_models.is_dir():
+        return source_models
+
+    # 4. Platform cache directory
+    if sys.platform == "win32":
+        base = Path(
+            os.environ.get(
+                "LOCALAPPDATA",
+                str(Path.home() / "AppData" / "Local"),
+            )
+        )
+        cache_dir = base / "face_makeup" / "models"
+    elif sys.platform == "darwin":
+        cache_dir = Path.home() / "Library" / "Caches" / "face_makeup" / "models"
+    else:
+        xdg_cache = os.environ.get("XDG_CACHE_HOME")
+        if xdg_cache:
+            cache_dir = Path(xdg_cache) / "face_makeup" / "models"
+        else:
+            cache_dir = Path.home() / ".cache" / "face_makeup" / "models"
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
 
 
 def _verify_model_checksum(model_path: Path) -> bool:
@@ -158,11 +218,23 @@ _MAX_IMAGE_PIXELS = 24_000_000
 
 @dataclass
 class ProcessorConfig:
-    """Configuration class for MakeupProcessor."""
+    """Configuration class for MakeupProcessor.
+
+    Args:
+        min_detection_confidence: Minimum confidence for face detection (0.0-1.0).
+        min_tracking_confidence: Minimum confidence for landmark tracking (0.0-1.0).
+        refine_landmarks: Whether to apply landmark refinement.
+        max_num_faces: Maximum number of faces to detect.
+        model_dir: Custom directory for the hair segmentation model file.
+            When ``None`` (default), the directory is resolved via the
+            :func:`_resolve_model_dir` priority chain (env var, source
+            checkout, platform cache).
+    """
     min_detection_confidence: float = 0.5
     min_tracking_confidence: float = 0.5
     refine_landmarks: bool = True
     max_num_faces: int = 10
+    model_dir: Optional[str] = None
 
     def __post_init__(self):
         """Validate parameter bounds."""
@@ -176,6 +248,10 @@ class ProcessorConfig:
             )
         if not isinstance(self.max_num_faces, int) or self.max_num_faces < 1:
             raise ValueError(f"max_num_faces must be a positive integer, got {self.max_num_faces}")
+        if self.model_dir is not None and not isinstance(self.model_dir, str):
+            raise ValueError(
+                f"model_dir must be a string or None, got {type(self.model_dir).__name__}"
+            )
 
 
 class MakeupProcessor:
@@ -215,7 +291,7 @@ class MakeupProcessor:
         # Create hair segmenter (auto-download if model is missing)
         hair_segmenter = None
         try:
-            model_dir = Path(__file__).parent.parent.parent / "models"
+            model_dir = _resolve_model_dir(self._config.model_dir)
             model_path = model_dir / _HAIR_MODEL_FILENAME
 
             if not model_path.exists():
@@ -372,3 +448,29 @@ class MakeupProcessor:
                 f"Image too large: {width}x{height} ({num_pixels} px) "
                 f"exceeds {_MAX_IMAGE_PIXELS} pixel limit"
             )
+
+    def close(self) -> None:
+        """Release all resources held by this processor.
+
+        Closes the face detector, landmark extractor, and rendering
+        pipeline (including the hair segmenter if loaded).  Idempotent —
+        safe to call multiple times.
+        """
+        try:
+            self._detector.close()
+        except Exception:
+            logger.warning("Error closing FaceDetector", exc_info=True)
+        try:
+            self._landmark_extractor.close()
+        except Exception:
+            logger.warning("Error closing LandmarkExtractor", exc_info=True)
+        try:
+            self._rendering_pipeline.close()
+        except Exception:
+            logger.warning("Error closing RenderingPipeline", exc_info=True)
+
+    def __enter__(self) -> "MakeupProcessor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()

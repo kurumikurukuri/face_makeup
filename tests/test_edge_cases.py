@@ -5,7 +5,6 @@ import pytest
 import numpy as np
 
 from face_makeup.processor import MakeupProcessor, ProcessorConfig
-from face_makeup.core.types import ColorParams, LipsParams
 
 
 @pytest.fixture
@@ -179,7 +178,7 @@ class TestCacheEdgeCases:
         """Test cache invalidation after clear."""
         ctx = processor.open(test_image)
         ctx.faces[0].lip(color=(255, 100, 100), opacity=0.5)
-        result1 = ctx.render()
+        ctx.render()
 
         ctx.faces[0].clear()
         result2 = ctx.render()
@@ -244,7 +243,7 @@ class TestProcessorConfigEdgeCases:
         processor = MakeupProcessor(config=config)
 
         try:
-            ctx = processor.open(test_image)
+            processor.open(test_image)
             # High threshold may reject some faces
         except ValueError:
             pass  # Acceptable if no face meets threshold

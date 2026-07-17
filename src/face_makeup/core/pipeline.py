@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -25,8 +25,8 @@ class MaskStrategy(ABC):
     exclusions to the softened mask before blending.
 
     Subclasses may override to accept optional context parameters
-    (image, landmarks, segmenter) for advanced mask generation
-    such as rule-based edge correction or 3D projection.
+    (image, landmarks) for advanced mask generation such as rule-based
+    edge correction or 3D projection.
     """
 
     @abstractmethod
@@ -36,7 +36,6 @@ class MaskStrategy(ABC):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: FaceLandmarks | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         """Return (H, W) soft mask, float32 in [0, 1] (fade already applied)."""
         ...
@@ -46,8 +45,8 @@ class BlendStrategy(ABC):
     """Apply color blending to a masked region of an image.
 
     Subclasses may override to accept optional context parameters
-    (blender, segmenter, landmarks) for advanced blending such as
-    3D-projected cheek blending or hue-shift iris blending.
+    (landmarks) for advanced blending such as 3D-projected cheek
+    blending or hue-shift iris blending.
     """
 
     @abstractmethod
@@ -56,8 +55,6 @@ class BlendStrategy(ABC):
         image: np.ndarray,
         mask: np.ndarray,
         params: PartParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
         """Return (H, W, 3) uint8 RGB blended result (new array, input unchanged)."""
@@ -72,7 +69,6 @@ class MakeupPass:
         pass_type: Unique identifier for this pass (e.g. "foundation", "lips").
         priority: Render order; lower values are drawn first (under other layers).
         params: Color, opacity, softness, and part-specific fields.
-        landmark_indices: MediaPipe landmark indices for mask generation.
         mask_strategy: Strategy that returns the final soft mask (float32 0-1,
             geometry + fade baked in).
         blend_strategy: Strategy that applies pure colour to the ready soft mask.
@@ -88,8 +84,7 @@ class MakeupPass:
     pass_type: str
     priority: int
     params: PartParams
-    landmark_indices: List[int] | Dict[str, List]
-    mask_strategy: Optional[MaskStrategy] = None
-    blend_strategy: Optional[BlendStrategy] = None
-    exclusion_landmarks: List[List[int]] = field(default_factory=list)
-    clip_landmarks: List[List[int]] = field(default_factory=list)
+    mask_strategy: MaskStrategy | None = None
+    blend_strategy: BlendStrategy | None = None
+    exclusion_landmarks: list[list[int]] = field(default_factory=list)
+    clip_landmarks: list[list[int]] = field(default_factory=list)

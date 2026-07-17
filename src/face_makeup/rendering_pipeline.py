@@ -113,6 +113,20 @@ class RenderingPipeline:
         """Check whether a cached render exists for *context*."""
         return context in self._cache
 
+    def close(self) -> None:
+        """Release resources held by the rendering pipeline.
+
+        Delegates to the hair segmenter's ``close()`` if one is loaded.
+        Idempotent — safe to call multiple times.
+        """
+        if self._hair_segmenter is not None:
+            try:
+                self._hair_segmenter.close()
+            except Exception:
+                logger.warning(
+                    "Error closing HairSegmenter", exc_info=True,
+                )
+
     def invalidate_cache(self, context: ImageContext) -> None:
         """
         Clear cached render for a specific context.

@@ -36,7 +36,7 @@ def _make_face(makeup_passes=None):
 
 
 class _NoopMaskStrategy(MaskStrategy):
-    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+    def generate(self, coords, image_shape, image=None, landmarks=None):
         mask = np.zeros(image_shape, dtype=np.uint8)
         mask[30:70, 30:70] = 255
         return mask
@@ -48,7 +48,7 @@ class _RegionMaskStrategy(MaskStrategy):
     def __init__(self, y0, y1, x0, x1):
         self._region = (y0, y1, x0, x1)
 
-    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+    def generate(self, coords, image_shape, image=None, landmarks=None):
         mask = np.zeros(image_shape, dtype=np.uint8)
         y0, y1, x0, x1 = self._region
         mask[y0:y1, x0:x1] = 255
@@ -58,7 +58,7 @@ class _RegionMaskStrategy(MaskStrategy):
 class _IdentityBlendStrategy(BlendStrategy):
     """Returns image unchanged (for testing pipeline flow)."""
 
-    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+    def apply(self, image, mask, params, landmarks=None):
         return image.copy()
 
 
@@ -68,7 +68,7 @@ class _TintBlendStrategy(BlendStrategy):
     def __init__(self, increment=10):
         self._increment = increment
 
-    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+    def apply(self, image, mask, params, landmarks=None):
         result = image.copy()
         result[mask > 0] = np.clip(
             result[mask > 0].astype(np.int32) + self._increment, 0, 255
@@ -84,7 +84,6 @@ def _make_pass(pass_type, priority=0, blend=None):
             color_params=ColorParams(target_rgb=(128, 128, 128)),
             opacity=0.5,
         ),
-        landmark_indices=[],
         mask_strategy=_NoopMaskStrategy(),
         blend_strategy=blend or _IdentityBlendStrategy(),
     )
@@ -130,7 +129,6 @@ class TestTwoPhasePipeline:
             params=PartParams(
                 color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5,
             ),
-            landmark_indices=[],
             mask_strategy=_RegionMaskStrategy(10, 20, 10, 20),
             blend_strategy=_TintBlendStrategy(increment=10),
         )
@@ -139,7 +137,6 @@ class TestTwoPhasePipeline:
             params=PartParams(
                 color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5,
             ),
-            landmark_indices=[],
             mask_strategy=_RegionMaskStrategy(50, 90, 50, 90),
             blend_strategy=_TintBlendStrategy(increment=50),
         )
@@ -159,7 +156,6 @@ class TestTwoPhasePipeline:
                 color_params=ColorParams(target_rgb=(128, 128, 128)),
                 opacity=0.5,
             ),
-            landmark_indices=[],
         )
         face = _make_face(makeup_passes=[p])
         image = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -202,14 +198,14 @@ def _make_face_with_coords(coords_array, makeup_passes=None):
 class _FullCoverageMaskStrategy(MaskStrategy):
     """Returns a mask covering the entire image."""
 
-    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+    def generate(self, coords, image_shape, image=None, landmarks=None):
         return np.full(image_shape, 255, dtype=np.uint8)
 
 
 class _ProbeBlend(BlendStrategy):
     """Encodes the final mask into channel 0 for inspection."""
 
-    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+    def apply(self, image, mask, params, landmarks=None):
         result = image.copy()
         result[:, :, 0] = (np.clip(mask, 0.0, 1.0) * 255).astype(np.uint8)
         return result
@@ -237,7 +233,6 @@ class TestLandmarkExclusionAndClip:
             params=PartParams(
                 color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=1.0,
             ),
-            landmark_indices=[],
             mask_strategy=_FullCoverageMaskStrategy(),
             blend_strategy=_ProbeBlend(),
             exclusion_landmarks=[[0, 1, 2, 3]],
@@ -264,7 +259,6 @@ class TestLandmarkExclusionAndClip:
             params=PartParams(
                 color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=1.0,
             ),
-            landmark_indices=[],
             mask_strategy=_FullCoverageMaskStrategy(),
             blend_strategy=_ProbeBlend(),
             clip_landmarks=[[0, 1, 2, 3]],
@@ -287,7 +281,6 @@ class TestLandmarkExclusionAndClip:
             params=PartParams(
                 color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=1.0,
             ),
-            landmark_indices=[],
             mask_strategy=_FullCoverageMaskStrategy(),
             blend_strategy=_ProbeBlend(),
             exclusion_landmarks=[[10, 11, 12, 13, 14]],

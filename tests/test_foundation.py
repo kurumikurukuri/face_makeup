@@ -23,7 +23,7 @@ class TestFoundationMaskStrategy:
     @pytest.fixture
     def oval_coords(self):
         """Simulate a face oval with coordinates forming a rough circle (36 points)."""
-        h, w = 100, 100
+        _h, _w = 100, 100
         cx, cy = 50, 50
         radius = 30
         n_points = 36

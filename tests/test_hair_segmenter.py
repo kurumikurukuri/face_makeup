@@ -13,14 +13,14 @@ from face_makeup.renderer import Renderer
 class _FullMaskStrategy(MaskStrategy):
     """Mask that covers the entire image (255 everywhere)."""
 
-    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+    def generate(self, coords, image_shape, image=None, landmarks=None):
         return np.full(image_shape, 255, dtype=np.uint8)
 
 
 class _IdentityBlend(BlendStrategy):
     """Adds +10 to R channel in masked region so hair exclusion is observable."""
 
-    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+    def apply(self, image, mask, params, landmarks=None):
         result = image.copy().astype(np.int32)
         result[mask > 0, 2] += 10
         return np.clip(result, 0, 255).astype(np.uint8)
@@ -34,7 +34,6 @@ def _make_pass(pass_type, priority=0, landmarks=None):
             color_params=ColorParams(target_rgb=(200, 100, 100)),
             opacity=0.5,
         ),
-        landmark_indices=landmarks or [],
         mask_strategy=_FullMaskStrategy(),
         blend_strategy=_IdentityBlend(),
     )

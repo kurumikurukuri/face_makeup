@@ -31,14 +31,14 @@ class _SoftDiskMaskStrategy(MaskStrategy):
     def __init__(self, soft_mask: np.ndarray):
         self._soft_mask = soft_mask
 
-    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+    def generate(self, coords, image_shape, image=None, landmarks=None):
         return self._soft_mask
 
 
 class _MaskProbeBlend(BlendStrategy):
     """Encodes the final mask handed to the blend into channel 2 (×200)."""
 
-    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+    def apply(self, image, mask, params, landmarks=None):
         result = image.copy()
         result[:, :, 2] = np.clip(mask * 200.0, 0, 255).astype(np.uint8)
         return result
@@ -68,7 +68,6 @@ def _probe_pass(soft_mask):
         pass_type="probe",
         priority=0,
         params=PartParams(color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=1.0),
-        landmark_indices=[],
         mask_strategy=_SoftDiskMaskStrategy(soft_mask),
         blend_strategy=_MaskProbeBlend(),
     )

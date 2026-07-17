@@ -3,8 +3,6 @@ Cheek makeup pass — convex hull mask + 3D-projected ellipse blend.
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
 import cv2
 import numpy as np
 
@@ -45,7 +43,6 @@ class CheekMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: object | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         base = np.zeros((h, w), dtype=np.uint8)
@@ -75,10 +72,10 @@ class CheekMaskStrategy(MaskStrategy):
 
     def create_cheek_mask(
         self,
-        image_shape: Tuple[int, int],
+        image_shape: tuple[int, int],
         base_mask: np.ndarray,
         params: CheekParams,
-        landmarks: Optional[FaceLandmarks] = None,
+        landmarks: FaceLandmarks | None = None,
         cheek_side: str = 'left',
         return_debug_info: bool = False,
     ) -> np.ndarray:
@@ -146,7 +143,7 @@ class CheekMaskStrategy(MaskStrategy):
 
     def _create_cheek_mask_3d(
         self,
-        image_shape: Tuple[int, int],
+        image_shape: tuple[int, int],
         base_mask: np.ndarray,
         params: CheekParams,
         landmarks: FaceLandmarks,
@@ -264,7 +261,7 @@ class CheekMaskStrategy(MaskStrategy):
         face3d_all_points: np.ndarray,
         cheek_face3d: np.ndarray,
         cheek_side: str,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Build UVW tangent-plane basis and fit a quadratic surface to cheek landmarks.
 
@@ -334,8 +331,8 @@ class CheekMaskStrategy(MaskStrategy):
         cheek_uvw: np.ndarray,
         surface_coeffs: np.ndarray,
         params: CheekParams,
-        image_shape: Tuple[int, int],
-    ) -> Tuple[float, float, np.ndarray, np.ndarray]:
+        image_shape: tuple[int, int],
+    ) -> tuple[float, float, np.ndarray, np.ndarray]:
         """
         Compute ellipse parameters in tangent space and project to image pixels.
 
@@ -399,7 +396,7 @@ class CheekMaskStrategy(MaskStrategy):
         center_px_x: float,
         center_px_y: float,
         polygon_px: np.ndarray,
-        image_shape: Tuple[int, int],
+        image_shape: tuple[int, int],
     ) -> np.ndarray:
         """
         Rasterize a polygon to a float32 hard-edge mask using distance-based fill.
@@ -478,8 +475,6 @@ class CheekBlendStrategy(BlendStrategy):
         image: np.ndarray,
         mask: np.ndarray,
         params: CheekParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
         return blend_matte(
@@ -499,7 +494,6 @@ class CheekPass(MakeupPass):
             pass_type=part_name,
             priority=15,
             params=params,
-            landmark_indices=list(indices),
             mask_strategy=CheekMaskStrategy(list(indices), side, params),
             blend_strategy=CheekBlendStrategy(),
         )

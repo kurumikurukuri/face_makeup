@@ -388,6 +388,64 @@ def blend_matte(
     return np.clip(rgb_result * 255, 0, 255).astype(np.uint8)
 
 
+def blend_linear(
+    image: np.ndarray,
+    soft_mask: np.ndarray,
+    target_rgb: tuple[int, int, int],
+    opacity: float,
+) -> np.ndarray:
+    """Linear (lerp) alpha blend toward a target colour.
+
+    Per-channel ``result = base * (1 - alpha) + target * alpha``.
+    Unlike :func:`blend_matte`, this is a flat RGB-space lerp — no HSV
+    transform.  Used by foundation (full-face skin-tone overlay) where
+    HSV-aware blending would shift the skin hue unnaturally.
+
+    Args:
+        image: Input RGB uint8 image (H, W, 3).
+        soft_mask: Ready soft mask float32 (0.0-1.0).
+        target_rgb: Target color as (R, G, B) 0-255.
+        opacity: Opacity (0.0-1.0).
+
+    Returns:
+        RGB uint8 image with makeup applied.
+    """
+    target_f = np.array(target_rgb, dtype=np.float32) / 255.0
+    alpha = soft_mask[:, :, np.newaxis] * opacity
+    image_f = image.astype(np.float32) / 255.0
+    result = image_f * (1.0 - alpha) + target_f * alpha
+    return np.clip(result * 255.0, 0, 255).astype(np.uint8)
+
+
+def blend_screen(
+    image: np.ndarray,
+    soft_mask: np.ndarray,
+    target_rgb: tuple[int, int, int],
+    opacity: float,
+) -> np.ndarray:
+    """Screen blend toward a light target colour.
+
+    ``result = 1 - (1 - base)(1 - target)`` always lightens per channel,
+    so a white or pearl highlight reads correctly.  Used by tear bag
+    highlight (under-eye brightening).
+
+    Args:
+        image: Input RGB uint8 image (H, W, 3).
+        soft_mask: Ready soft mask float32 (0.0-1.0).
+        target_rgb: Target color as (R, G, B) 0-255.
+        opacity: Opacity (0.0-1.0).
+
+    Returns:
+        RGB uint8 image with makeup applied.
+    """
+    image_f = image.astype(np.float32) / 255.0
+    target = np.array(target_rgb, dtype=np.float32) / 255.0
+    screened = 1.0 - (1.0 - image_f) * (1.0 - target)
+    blend_weight = soft_mask[:, :, np.newaxis] * opacity
+    blended = image_f * (1.0 - blend_weight) + screened * blend_weight
+    return np.clip(blended * 255.0, 0, 255).astype(np.uint8)
+
+
 def standard_blend(
     image: np.ndarray,
     mask: np.ndarray,

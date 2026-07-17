@@ -15,8 +15,8 @@ src_path = Path(__file__).parent.parent / "src"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-import pytest
-import numpy as np
+import pytest  # noqa: E402
+import numpy as np  # noqa: E402
 
 
 @pytest.fixture(scope="session")

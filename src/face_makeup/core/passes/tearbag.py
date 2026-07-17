@@ -33,6 +33,7 @@ from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.blend.blend_utils import (
     apply_glitter,
     blend_matte,
+    blend_screen,
     feather_px_from_softness,
     soften_mask,
 )
@@ -120,12 +121,16 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
         size: float = 1.0,
         envelope: Sequence[float] = TEAR_BAG_ENVELOPE,
         softness: float = 0.5,
+        feather_scale: float = 0.04,
+        soften_floor: float = 0.1,
     ):
         self._ridge_indices = ridge_indices
         self._lash_indices = lash_indices
         self._size = size
         self._envelope = envelope
         self._softness = softness
+        self._feather_scale = feather_scale
+        self._soften_floor = soften_floor
 
     def generate(
         self,
@@ -133,12 +138,14 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: FaceLandmarks | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._feather_scale,
+        )
 
         outer_pts, lash_pts = _lerp_outer(
             coords, self._ridge_indices, self._lash_indices, self._size,
@@ -147,11 +154,11 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
         # outer (inner→outer) + lash (outer→inner) forms a closed polygon
         poly = np.vstack([outer_pts, lash_pts])
         if len(poly) < 3:
-            return soften_mask(mask, feather_px)
+            return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
         shift = _SUBPIXEL_BITS
         cv2.fillPoly(mask, [_shifted_points(poly, shift)], 255, shift=shift)
-        return soften_mask(mask, feather_px)
+        return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
 
 class TearBagShadowMaskStrategy(MaskStrategy):
@@ -165,6 +172,8 @@ class TearBagShadowMaskStrategy(MaskStrategy):
         envelope: Sequence[float] = TEAR_BAG_ENVELOPE,
         line_thickness: int = 2,
         softness: float = 0.5,
+        feather_scale: float = 0.04,
+        soften_floor: float = 0.1,
     ):
         self._ridge_indices = ridge_indices
         self._lash_indices = lash_indices
@@ -172,6 +181,8 @@ class TearBagShadowMaskStrategy(MaskStrategy):
         self._envelope = envelope
         self._line_thickness = line_thickness
         self._softness = softness
+        self._feather_scale = feather_scale
+        self._soften_floor = soften_floor
 
     def generate(
         self,
@@ -179,19 +190,21 @@ class TearBagShadowMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: FaceLandmarks | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._feather_scale,
+        )
 
         outer_pts, _ = _lerp_outer(
             coords, self._ridge_indices, self._lash_indices, self._size,
             envelope=self._envelope,
         )
         if len(outer_pts) < 2:
-            return soften_mask(mask, feather_px)
+            return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
         base_thickness = max(1, min(h, w) // 512)
         shift = _SUBPIXEL_BITS
@@ -206,7 +219,7 @@ class TearBagShadowMaskStrategy(MaskStrategy):
             kernel = np.ones((self._line_thickness, self._line_thickness), np.uint8)
             mask = cv2.dilate(mask, kernel, iterations=1)
 
-        return soften_mask(mask, feather_px)
+        return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
 
 class TearBagHighlightBlendStrategy(BlendStrategy):
@@ -227,18 +240,14 @@ class TearBagHighlightBlendStrategy(BlendStrategy):
         image: np.ndarray,
         mask: np.ndarray,
         params: TearBagHighlightParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
         # ``mask`` is already the ready soft mask (faded + excluded upstream).
-        image_f = image.astype(np.float32) / 255.0
-        target = np.array(params.color_params.target_rgb, dtype=np.float32) / 255.0
-
-        screened = 1.0 - (1.0 - image_f) * (1.0 - target)
-        blend_weight = mask[:, :, np.newaxis] * params.opacity
-        blended = image_f * (1.0 - blend_weight) + screened * blend_weight
-        result = np.clip(blended * 255.0, 0, 255).astype(np.uint8)
+        result = blend_screen(
+            image, mask,
+            params.color_params.target_rgb,
+            params.opacity,
+        )
 
         if params.glitter > 0:
             rng = np.random.default_rng(params.seed) if params.seed is not None else None
@@ -254,8 +263,6 @@ class TearBagShadowBlendStrategy(BlendStrategy):
         image: np.ndarray,
         mask: np.ndarray,
         params: TearBagShadowParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
         return blend_matte(
@@ -274,10 +281,11 @@ class TearBagHighlightPass(MakeupPass):
             pass_type=part_name,
             priority=22,
             params=params,
-            landmark_indices=ridge_indices + lash_indices,
             mask_strategy=TearBagHighlightMaskStrategy(
                 ridge_indices, lash_indices, params.size,
                 softness=params.softness,
+                feather_scale=params._FEATHER_SCALE,
+                soften_floor=params._SOFTEN_FLOOR,
             ),
             blend_strategy=TearBagHighlightBlendStrategy(),
         )
@@ -292,11 +300,12 @@ class TearBagShadowPass(MakeupPass):
             pass_type=part_name,
             priority=27,
             params=params,
-            landmark_indices=ridge_indices + lash_indices,
             mask_strategy=TearBagShadowMaskStrategy(
                 ridge_indices, lash_indices, params.size,
                 line_thickness=params.thickness,
                 softness=params.softness,
+                feather_scale=params._FEATHER_SCALE,
+                soften_floor=params._SOFTEN_FLOOR,
             ),
             blend_strategy=TearBagShadowBlendStrategy(),
         )

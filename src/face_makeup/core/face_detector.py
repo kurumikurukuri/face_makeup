@@ -1,7 +1,8 @@
 """
 Face detection using MediaPipe Face Detection.
 """
-from typing import List
+from __future__ import annotations
+
 import numpy as np
 import mediapipe as mp
 
@@ -22,7 +23,7 @@ class FaceDetector:
         )
         self._closed = False
 
-    def detect(self, image: np.ndarray) -> List[FaceBBox]:
+    def detect(self, image: np.ndarray) -> list[FaceBBox]:
         """
         Detect faces in an image.
 
@@ -30,7 +31,7 @@ class FaceDetector:
             image: RGB uint8 image (H, W, 3).
 
         Returns:
-            List[FaceBBox]: List of detected face bounding boxes.
+            list[FaceBBox]: List of detected face bounding boxes.
 
         Raises:
             ValueError: If image is invalid or no faces detected.

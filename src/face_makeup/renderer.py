@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import cv2
@@ -62,7 +62,7 @@ def _feather_exclusion(mask: np.ndarray, sigma: float = 2.0) -> np.ndarray:
 
 def _build_landmark_group_mask(
     coords: np.ndarray,
-    groups: List[List[int]],
+    groups: list[list[int]],
     image_shape: tuple[int, int],
     feather_sigma: float = 2.0,
 ) -> np.ndarray | None:
@@ -110,8 +110,8 @@ class Renderer:
 
     def __init__(
         self,
-        visualizer: Optional[DebugVisualizer] = None,
-        hair_segmenter: Optional[object] = None
+        visualizer: DebugVisualizer | None = None,
+        hair_segmenter: object | None = None
     ):
         """
         Initialize renderer.
@@ -128,7 +128,7 @@ class Renderer:
         image: np.ndarray,
         face: Face,
         debug: bool = False,
-        session_id: Optional[str] = None
+        session_id: str | None = None
     ) -> np.ndarray:
         """
         Render all makeup layers for a single face via two-phase execution.
@@ -160,7 +160,7 @@ class Renderer:
         # the later instance silently overwrite the earlier one, so every pass
         # gets its own slot.
         mask_cache: dict[int, np.ndarray] = {}          # final soft mask
-        hard_masks: Dict[str, np.ndarray] = {}          # debug preview
+        hard_masks: dict[str, np.ndarray] = {}          # debug preview
 
         # Run hair segmentation once → one feathered soft exclusion mask reused
         # by every pass (applied after each pass's own fade).
@@ -318,9 +318,9 @@ class Renderer:
     def compose(
         self,
         image: np.ndarray,
-        faces: List[Face],
+        faces: list[Face],
         debug: bool = False,
-        session_id: Optional[str] = None
+        session_id: str | None = None
     ) -> np.ndarray:
         """
         Compose all faces' makeup onto image.

@@ -50,7 +50,6 @@ class EyeIrisMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: object | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -78,8 +77,6 @@ class EyeIrisBlendStrategy(BlendStrategy):
         image: np.ndarray,
         mask: np.ndarray,
         params: EyeIrisParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: object | None = None,
     ) -> np.ndarray:
         if params.hue_shift:
@@ -113,7 +110,6 @@ class EyeIrisPass(MakeupPass):
             pass_type=part_name,
             priority=35,
             params=params,
-            landmark_indices=list(indices),
             mask_strategy=EyeIrisMaskStrategy(
                 list(indices), params.softness,
                 feather_scale=params._FEATHER_SCALE,

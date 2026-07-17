@@ -171,7 +171,6 @@ class EyeShadowMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: object | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -211,8 +210,6 @@ class EyeShadowBlendStrategy(BlendStrategy):
         image: np.ndarray,
         mask: np.ndarray,
         params: EyeShadowParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: FaceLandmarks | None = None,
     ) -> np.ndarray:
         result = blend_matte(
@@ -254,7 +251,6 @@ class EyeShadowPass(MakeupPass):
             pass_type=part_name,
             priority=25,
             params=params,
-            landmark_indices=list(crease_indices) + list(lash_indices),
             mask_strategy=EyeShadowMaskStrategy(
                 list(crease_indices), list(lash_indices), params.size,
                 params.softness,

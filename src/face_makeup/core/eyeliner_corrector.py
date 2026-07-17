@@ -11,8 +11,9 @@ Primary path:
 If no valid edge is found along P->Q, the original landmark position P is
 returned unchanged.
 """
+from __future__ import annotations
+
 import weakref
-from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -30,20 +31,26 @@ _GRAD_THRESHOLD = 0.1   # Minimum 1st-derivative to accept a crossing as an edge
 class EyelinerCorrector:
     """Detects true eyeliner edge positions using image-based analysis."""
 
-    # Class-level preprocess cache shared across all instances so that
-    # bilateralFilter is only applied once per source image even when
-    # left and right eyeliner parts each have their own corrector.
-    _preprocess_cache: dict = {}
-    _PREPROCESS_CACHE_MAX = 4
-
     # Per-instance correction cache cap to prevent unbounded growth
     # during video / batch processing.
     _MAX_CACHE_SIZE = 16
 
+    # Maximum number of preprocessed images to cache per instance.
+    _PREPROCESS_CACHE_MAX = 4
+
     def __init__(self) -> None:
+        # Per-instance preprocess cache so that bilateralFilter is only
+        # applied once per source image even when left and right eyeliner
+        # parts each have their own corrector instance within the same
+        # MakeupProcessor. Instance-level (not class-level) avoids unrelated
+        # EyelinerCorrector instances evicting each other's cache entries.
+        # Note: EyelinerCorrector itself is not thread-safe (see
+        # MakeupProcessor's class docstring).
+        self._preprocess_cache: dict = {}
+
         # Cache the debug entries produced by correct_points so that
         # get_debug_entries can reuse them without re-running find_edge.
-        # Structure: {part_name: {'img_ref': weakref, 'entries': List[dict]}}
+        # Structure: {part_name: {'img_ref': weakref, 'entries': list[dict]}}
         # A weakref to the source image is stored instead of id(): if the array
         # is GC'd and CPython reuses its address for a new array, weakref()
         # returns None, so the identity check `weakref() is image` is correct.
@@ -103,7 +110,7 @@ class EyelinerCorrector:
         px: float, py: float,
         dx: float, dy: float,
         norm: float,
-    ) -> Tuple[np.ndarray, List[Tuple[float, float]], np.ndarray]:
+    ) -> tuple[np.ndarray, list[tuple[float, float]], np.ndarray]:
         """
         Sample and smooth pixel intensities from P along direction (dx, dy).
 
@@ -150,10 +157,10 @@ class EyelinerCorrector:
     def _find_best_crossing(
         self,
         samples: np.ndarray,
-        coords: List[Tuple[float, float]],
+        coords: list[tuple[float, float]],
         t_values: np.ndarray,
-        fallback: Tuple[int, int],
-    ) -> Tuple[Tuple[int, int], dict]:
+        fallback: tuple[int, int],
+    ) -> tuple[tuple[int, int], dict]:
         """
         Find the 2nd-derivative zero-crossing with the largest positive 1st derivative.
 
@@ -206,7 +213,7 @@ class EyelinerCorrector:
         px: float, py: float,
         qx: float, qy: float,
         return_debug_info: bool = False,
-    ) -> Union[Tuple[int, int], Tuple[Tuple[int, int], Optional[dict]]]:
+    ) -> tuple[int, int] | tuple[tuple[int, int], dict | None]:
         """
         Find the eyeliner edge along the P->Q direction using
         2nd-derivative zero-crossing detection.
@@ -312,7 +319,7 @@ class EyelinerCorrector:
         gray = self.preprocess(eyeliner)
 
         all_corrected = []
-        cache_entries: List[dict] = []
+        cache_entries: list[dict] = []
         cache_key = (part_name, id(eyeliner), eyeliner.ctypes.data)
         for _key, indices in correction_map.items():
             for idx in indices:
@@ -347,11 +354,11 @@ class EyelinerCorrector:
         self,
         image: np.ndarray,
         landmarks: FaceLandmarks,
-        image_shape: Tuple[int, int],
+        image_shape: tuple[int, int],
         part_name: str,
         side: str,
-        eyeliner: Optional[np.ndarray] = None,
-    ) -> List[dict]:
+        eyeliner: np.ndarray | None = None,
+    ) -> list[dict]:
         """
         Run eyeliner correction and return per-point debug information.
 
@@ -392,7 +399,7 @@ class EyelinerCorrector:
         coords = landmarks.to_image_coords(w, h)
         correction_map = EYELINER_CORRECTION_MAP[part_name]
         gray = self.preprocess(eyeliner)
-        debug_entries: List[dict] = []
+        debug_entries: list[dict] = []
         for _key, indices in correction_map.items():
             for idx in indices:
                 if idx in EDGE_LANDMARK_DIRECTIONS:

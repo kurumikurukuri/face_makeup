@@ -51,7 +51,6 @@ class EyelinerMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: object | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -135,8 +134,6 @@ class EyelinerBlendStrategy(BlendStrategy):
         image: np.ndarray,
         mask: np.ndarray,
         params: EyeLinerParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
         landmarks: object | None = None,
     ) -> np.ndarray:
         return blend_matte(
@@ -151,12 +148,10 @@ class EyelinerPass(MakeupPass):
 
     def __init__(self, params: EyeLinerParams, side: str):
         part_name = f"eyeliner_{side}"
-        indices = EYELINER_LEFT_INDICES if side == "left" else EYELINER_RIGHT_INDICES
         super().__init__(
             pass_type=part_name,
             priority=30,
             params=params,
-            landmark_indices=indices,
             mask_strategy=EyelinerMaskStrategy(
                 part_name, params.thickness, params.softness
             ),

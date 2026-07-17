@@ -1,8 +1,10 @@
 """
 Data structure definitions
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import ClassVar, Optional, Tuple
+from typing import ClassVar
 import numpy as np
 
 
@@ -20,7 +22,7 @@ class FaceBBox:
 class FaceLandmarks:
     """Landmarks (normalized coordinates)"""
     points: np.ndarray  # shape: (N, 2), dtype: float32, range: 0..1. N depends on max custom landmark ID (e.g. 1708 when max ID = 1707).
-    points_3d: Optional[np.ndarray] = None  # shape: (478, 3), dtype: float32, normalized 3D coordinates
+    points_3d: np.ndarray | None = None  # shape: (478, 3), dtype: float32, normalized 3D coordinates
 
     def to_image_coords(self, img_width: int, img_height: int) -> np.ndarray:
         """Convert to image coordinate system"""
@@ -31,7 +33,7 @@ class FaceLandmarks:
 @dataclass
 class ColorParams:
     """Color correction parameters"""
-    target_rgb: Optional[Tuple[int, int, int]] = None  # Directly specified in RGB
+    target_rgb: tuple[int, int, int] | None = None  # Directly specified in RGB
 
 
 # Parameters by facial part
@@ -56,6 +58,17 @@ class PartParams:
             raise ValueError(f"opacity must be 0.0-1.0, got {self.opacity}")
         if not isinstance(self.softness, (int, float)) or not 0.0 <= self.softness <= 1.0:
             raise ValueError(f"softness must be 0.0-1.0, got {self.softness}")
+
+
+@dataclass
+class FoundationParams(PartParams):
+    """Parameters for foundation (full-face skin tone overlay).
+
+    Currently uses only the base class parameters (color, opacity, softness).
+    Defined as a dedicated subclass for consistency with other parts
+    and to allow foundation-specific calibration in the future.
+    """
+    pass
 
 
 @dataclass
@@ -86,8 +99,8 @@ class CheekParams(PartParams):
     _SOFTEN_FLOOR: ClassVar[float] = 0.05
 
     softness: float = 0.6
-    center: Tuple[float, float] = (0.0, 0.0)
-    radius: Tuple[float, float] = (0.5, 0.5)
+    center: tuple[float, float] = (0.0, 0.0)
+    radius: tuple[float, float] = (0.5, 0.5)
 
     def __post_init__(self):
         """Validate parameter bounds."""
@@ -165,6 +178,11 @@ class TearBagHighlightParams(PartParams):
             unpredictable RNG; pass an integer for reproducible output
             (useful for tests and comparison shots).
     """
+    # Per-part feather calibration (same as PartParams defaults — tear bag
+    # geometry is similar in scale to foundation/lips, so 0.04 / 0.1 works well).
+    _FEATHER_SCALE: ClassVar[float] = 0.04
+    _SOFTEN_FLOOR: ClassVar[float] = 0.1
+
     size: float = 1.0
     glitter: float = 0.0
     seed: int | None = None
@@ -188,6 +206,10 @@ class TearBagShadowParams(PartParams):
         size: Shadow line position 0.0-1.0. Mirrors TearBagHighlightParams.size
               so highlight and shadow track together.
     """
+    # Per-part feather calibration (same as PartParams defaults).
+    _FEATHER_SCALE: ClassVar[float] = 0.04
+    _SOFTEN_FLOOR: ClassVar[float] = 0.1
+
     thickness: int = 2
     size: float = 1.0
 

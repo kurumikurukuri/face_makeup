@@ -7,7 +7,7 @@ Manages rendering and output operations.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -37,9 +37,9 @@ class ImageContext:
     def __init__(
         self,
         image: np.ndarray,
-        faces: List[Face],
+        faces: list[Face],
         rendering_pipeline: RenderingPipeline,
-        io_handler: Optional[IOHandler] = None
+        io_handler: IOHandler | None = None
     ):
         """
         Initialize image context.
@@ -67,7 +67,7 @@ class ImageContext:
         return self._original_image.copy()
 
     @property
-    def faces(self) -> List[Face]:
+    def faces(self) -> list[Face]:
         """Get list of detected faces (shallow copy)."""
         return list(self._faces)
 

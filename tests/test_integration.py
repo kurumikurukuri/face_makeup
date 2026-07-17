@@ -8,13 +8,6 @@ import os
 import tempfile
 
 from face_makeup.processor import MakeupProcessor, ProcessorConfig
-from face_makeup.core.types import (
-    LipsParams,
-    CheekParams,
-    EyeShadowParams,
-    EyeLinerParams,
-    ColorParams,
-)
 
 
 @pytest.fixture

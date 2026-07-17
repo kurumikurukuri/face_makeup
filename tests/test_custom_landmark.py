@@ -7,7 +7,6 @@ import numpy as np
 
 from face_makeup.custom_landmark import (
     CUSTOM_LANDMARK_DEFS,
-    CustomLandmarkDef,
     EDGE_LANDMARK_DIRECTIONS,
     MAX_LANDMARK_ID,
     NUM_MP_LANDMARKS,

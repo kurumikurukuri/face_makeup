@@ -3,8 +3,6 @@ Foundation makeup pass — full-face skin tone overlay.
 """
 from __future__ import annotations
 
-from typing import List
-
 import cv2
 import numpy as np
 
@@ -19,8 +17,12 @@ from face_makeup.constants import (
     LIPS_INDICES,
 )
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
-from face_makeup.core.blend.blend_utils import feather_px_from_softness, soften_mask
-from face_makeup.core.types import PartParams
+from face_makeup.core.blend.blend_utils import (
+    blend_linear,
+    feather_px_from_softness,
+    soften_mask,
+)
+from face_makeup.core.types import FoundationParams
 
 # Landmark groups always excluded from the foundation mask by the renderer
 # via ``exclusion_landmarks`` (soft * (1 - exclusion) = AND NOT).  Each
@@ -35,7 +37,7 @@ from face_makeup.core.types import PartParams
 #         eyelids; always excluded, not conditional on eyeshadow presence.
 #   4-5   Upper / lower lip — keep foundation off the lips; always excluded,
 #         not conditional on a lips pass being present.
-_EXCLUSION_REGIONS: List[List[int]] = [
+_EXCLUSION_REGIONS: list[list[int]] = [
     EYELINER_UPPER_LEFT_INDICES + EYELINER_LOWER_LEFT_INDICES,
     EYELINER_UPPER_RIGHT_INDICES + EYELINER_LOWER_RIGHT_INDICES,
     list(EYELID_LEFT_INDICES),
@@ -63,7 +65,6 @@ class FoundationMaskStrategy(MaskStrategy):
         image_shape: tuple[int, int],
         image: np.ndarray | None = None,
         landmarks: object | None = None,
-        segmenter: object | None = None,
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
@@ -86,16 +87,14 @@ class FoundationBlendStrategy(BlendStrategy):
         self,
         image: np.ndarray,
         mask: np.ndarray,
-        params: PartParams,
-        blender: object | None = None,
-        segmenter: object | None = None,
+        params: FoundationParams,
         landmarks: object | None = None,
     ) -> np.ndarray:
-        target_color = np.array(params.color_params.target_rgb, dtype=np.float32) / 255.0
-        alpha = mask[:, :, np.newaxis] * params.opacity
-        image_float = image.astype(np.float32) / 255.0
-        result = image_float * (1.0 - alpha) + target_color * alpha
-        return np.clip(result * 255.0, 0, 255).astype(np.uint8)
+        return blend_linear(
+            image, mask,
+            params.color_params.target_rgb,
+            params.opacity,
+        )
 
 
 class FoundationPass(MakeupPass):
@@ -106,12 +105,11 @@ class FoundationPass(MakeupPass):
     of which other passes are present in the same render.
     """
 
-    def __init__(self, params: PartParams):
+    def __init__(self, params: FoundationParams):
         super().__init__(
             pass_type="foundation",
             priority=0,
             params=params,
-            landmark_indices=list(FACE_OVAL_INDICES),
             mask_strategy=FoundationMaskStrategy(softness=params.softness),
             blend_strategy=FoundationBlendStrategy(),
             exclusion_landmarks=_EXCLUSION_REGIONS,

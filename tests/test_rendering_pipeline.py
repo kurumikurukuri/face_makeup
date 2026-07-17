@@ -4,7 +4,6 @@ Tests for RenderingPipeline class.
 import pytest
 import numpy as np
 import gc
-from unittest import mock
 
 from face_makeup.rendering_pipeline import RenderingPipeline
 from face_makeup.face import Face
@@ -229,8 +228,8 @@ class TestRenderingPipelineSharedPipeline:
         ctx2 = SimpleContext()
 
         # Render both contexts with same pipeline
-        result1 = pipeline.render(ctx1, test_image, [face1])
-        result2 = pipeline.render(ctx2, test_image, [face2])
+        pipeline.render(ctx1, test_image, [face1])
+        pipeline.render(ctx2, test_image, [face2])
 
         # Both should be in cache with independent entries
         assert pipeline.has_cached_result(ctx1)

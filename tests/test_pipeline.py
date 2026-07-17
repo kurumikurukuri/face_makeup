@@ -1,7 +1,6 @@
 """
 Tests for core pipeline abstractions: MakeupPass, MaskStrategy, BlendStrategy.
 """
-import pytest
 import numpy as np
 
 from face_makeup.core.pipeline import (
@@ -13,12 +12,12 @@ from face_makeup.core.types import PartParams, ColorParams
 
 
 class _DummyMaskStrategy(MaskStrategy):
-    def generate(self, coords, image_shape, image=None, landmarks=None, segmenter=None):
+    def generate(self, coords, image_shape, image=None, landmarks=None):
         return np.zeros(image_shape, dtype=np.float32)
 
 
 class _DummyBlendStrategy(BlendStrategy):
-    def apply(self, image, mask, params, blender=None, segmenter=None, landmarks=None):
+    def apply(self, image, mask, params, landmarks=None):
         return image.copy()
 
 
@@ -30,7 +29,6 @@ def _make_pass(pass_type, priority=0):
             color_params=ColorParams(target_rgb=(128, 128, 128)),
             opacity=0.5,
         ),
-        landmark_indices=[],
         mask_strategy=_DummyMaskStrategy(),
         blend_strategy=_DummyBlendStrategy(),
     )
@@ -43,7 +41,6 @@ class TestMakeupPassProperties:
         p = MakeupPass(
             pass_type="test", priority=0,
             params=PartParams(color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5),
-            landmark_indices=[],
         )
         assert p.mask_strategy is None
 
@@ -51,7 +48,6 @@ class TestMakeupPassProperties:
         p = MakeupPass(
             pass_type="test", priority=0,
             params=PartParams(color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5),
-            landmark_indices=[],
         )
         assert p.blend_strategy is None
 
@@ -59,7 +55,6 @@ class TestMakeupPassProperties:
         p = MakeupPass(
             pass_type="test", priority=0,
             params=PartParams(color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5),
-            landmark_indices=[],
         )
         assert p.exclusion_landmarks == []
 
@@ -67,7 +62,6 @@ class TestMakeupPassProperties:
         p = MakeupPass(
             pass_type="test", priority=0,
             params=PartParams(color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5),
-            landmark_indices=[],
         )
         assert p.clip_landmarks == []
 
@@ -75,21 +69,3 @@ class TestMakeupPassProperties:
         p1 = _make_pass("low", priority=0)
         p2 = _make_pass("high", priority=100)
         assert p1.priority < p2.priority
-
-    def test_landmark_indices_list(self):
-        indices = [1, 2, 3]
-        p = MakeupPass(
-            pass_type="test", priority=0,
-            params=PartParams(color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5),
-            landmark_indices=indices,
-        )
-        assert p.landmark_indices == indices
-
-    def test_landmark_indices_dict(self):
-        indices = {"left": [1, 2], "right": [3, 4]}
-        p = MakeupPass(
-            pass_type="test", priority=0,
-            params=PartParams(color_params=ColorParams(target_rgb=(128, 128, 128)), opacity=0.5),
-            landmark_indices=indices,
-        )
-        assert p.landmark_indices == indices

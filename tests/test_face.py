@@ -11,8 +11,6 @@ from face_makeup.core.types import (
     EyeShadowParams,
     EyeLinerParams,
     ColorParams,
-    EyeIrisParams,
-    PartParams,
     TearBagHighlightParams,
 )
 from face_makeup.custom_landmark import NUM_TOTAL
