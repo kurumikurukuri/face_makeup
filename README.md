@@ -38,11 +38,13 @@
 
 - リップ：口紅の色および透明度を調整
 - チーク：頬に自然なブラッシュを適用
-- アイシャドウ：まぶたにカスタマイズ可能なカラーを適用
+- アイシャドウ：まぶた全体または目の淵（キワ）にカスタマイズ可能なカラーを適用（グリッター/ラメ対応）
 - アイライナー：目の輪郭に沿ったラインを描画
 - カラコン：虹彩にカラーコンタクト効果を適用
+- 涙袋：下まぶたの涙袋にハイライトとシャドウを適用（グリッター/ラメ対応）
+- ファンデーション：顔全体の肌トーン調整
 
-上記以外の部位についても、今後の拡張を予定しています。
+今後も継続的に部位の拡張を予定しています。
 
 ## インストール
 
@@ -69,13 +71,13 @@ cd face_makeup
 poetry install
 
 # 開発用（テスト含む）
-poetry install --with dev
+poetry install --extras dev
 
 # Streamlit Webアプリを使う場合
-poetry install --with app
+poetry install --extras app
 
 # すべてインストール
-poetry install --with dev,app
+poetry install --extras "dev app"
 ```
 
 #### pip
@@ -121,9 +123,12 @@ if ctx.face_count == 0:
 else:
     # 検出された顔にメイクを適用
     face = ctx.faces[0]
-    face.lip(color=(255, 100, 100), opacity=0.5)    # リップ
-    face.cheek(color=(255, 180, 180), opacity=0.3)  # チーク
-    face.eyelid(color=(180, 130, 150), opacity=0.4) # アイシャドウ
+    face.lip(color=(255, 100, 100), opacity=0.5)                          # リップ
+    face.cheek(color=(255, 180, 180), opacity=0.3)                        # チーク
+    face.eyelid(color=(180, 130, 150), opacity=0.4)                       # アイシャドウ
+    face.eyeliner(color=(0, 0, 0), opacity=0.8, thickness=2)              # アイライナー
+    face.eyeiris(color=(100, 150, 255), opacity=0.5)                      # カラコン
+    face.tear_bag_highlight(color=(255, 255, 255), opacity=0.3, size=0.8) # 涙袋ハイライト
 
     # レンダリングして保存
     result = ctx.render()

@@ -48,7 +48,7 @@ class _FakeHairSegmenter:
     def __init__(self, mask):
         self._mask = mask
 
-    def segment(self, image):
+    def segment(self, image, face_bbox=None):
         return self._mask.copy()
 
 

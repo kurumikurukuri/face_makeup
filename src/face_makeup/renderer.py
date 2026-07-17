@@ -166,7 +166,7 @@ class Renderer:
         # by every pass (applied after each pass's own fade).
         hair_soft = None
         if self._hair_segmenter is not None:
-            hair_raw = self._hair_segmenter.segment(image)
+            hair_raw = self._hair_segmenter.segment(image, face_bbox=face.bbox)
             if hair_raw is not None:
                 hair_soft = _feather_exclusion(hair_raw)
 
