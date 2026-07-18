@@ -34,11 +34,26 @@ _SOFTEN_FLOOR = 0.1
 # independent by construction.
 _FEATHER_SCALE = 0.04
 
+# Scale denominator for resolution-adaptive stroke thickness used by
+# cv2.polylines (LINE_AA). One pixel per 512 px of image short side keeps
+# curves visible but not chunky at any input resolution. Chosen to match
+# the hair segmenter ``_INPUT_SIZE`` where the face region is ~512 px.
+_BASE_STROKE_SCALE = 512
+
 # Outer eye-corner landmark IDs (MediaPipe 468 face mesh). Their Euclidean
 # separation is a tilt- and crop-robust facial-scale reference, always present
 # in the standard mesh (unlike the refined iris points 468-477).
 _OUTER_EYE_CORNER_LEFT = 33
 _OUTER_EYE_CORNER_RIGHT = 263
+
+
+def base_stroke_thickness(image_shape: tuple[int, int]) -> int:
+    """Return a resolution-adaptive stroke width for anti-aliased polyline drawing.
+
+    One pixel per ``_BASE_STROKE_SCALE`` px of the image short side,
+    clamped to ≥1 so lines are always visible.
+    """
+    return max(1, min(image_shape[0], image_shape[1]) // _BASE_STROKE_SCALE)
 
 
 def _smootherstep(t: np.ndarray) -> np.ndarray:

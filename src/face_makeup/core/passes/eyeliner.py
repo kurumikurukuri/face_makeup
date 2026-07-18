@@ -14,6 +14,7 @@ from face_makeup.constants import (
 from face_makeup.core.eyeliner_corrector import EyelinerCorrector
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.blend.blend_utils import (
+    base_stroke_thickness,
     blend_matte,
     feather_px_from_softness,
     soften_mask,
@@ -82,7 +83,7 @@ class EyelinerMaskStrategy(MaskStrategy):
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
-        thickness = max(1, min(h, w) // 512)
+        thickness = base_stroke_thickness((h, w))
         shift = _SUBPIXEL_BITS
         scale = 1 << shift
 
@@ -106,7 +107,7 @@ class EyelinerMaskStrategy(MaskStrategy):
     ) -> np.ndarray:
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
-        thickness = max(1, min(h, w) // 512)
+        thickness = base_stroke_thickness((h, w))
         shift = _SUBPIXEL_BITS
         scale = 1 << shift
 

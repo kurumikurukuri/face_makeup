@@ -32,6 +32,7 @@ from face_makeup.constants import (
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.blend.blend_utils import (
     apply_glitter,
+    base_stroke_thickness,
     blend_matte,
     blend_screen,
     feather_px_from_softness,
@@ -206,7 +207,7 @@ class TearBagShadowMaskStrategy(MaskStrategy):
         if len(outer_pts) < 2:
             return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
-        base_thickness = max(1, min(h, w) // 512)
+        base_thickness = base_stroke_thickness((h, w))
         shift = _SUBPIXEL_BITS
         cv2.polylines(
             mask, [_shifted_points(outer_pts, shift)], isClosed=False,

@@ -125,7 +125,7 @@ class HairSegmenter:
                 else:
                     prob = self._infer_region_quadrants(image, region)
             mask = (prob > 0.5).astype(np.uint8) * 255
-        except Exception:
+        except (cv2.error, MemoryError):
             logger.exception("Hair segmentation failed")
             return None
 
@@ -192,9 +192,15 @@ class HairSegmenter:
     ) -> np.ndarray:
         """Split ``region`` into 4 overlapping quadrants, infer each, blend seams.
 
-        Each quadrant extends ``overlap`` pixels toward the centre; a feather
-        window ramps 0->1 across each overlap so the per-pixel weighted sum
-        normalises into a seamless hair-probability map at full image size.
+        Each quadrant extends ``overlap`` pixels toward the centre. A separable
+        bilinear fade window (outer product of two 1D ramps) fades each tile
+        from 1→0 across its inner edges. Because multiple tiles overlap at the
+        seams the raw weight sum is *not* constant — it varies 1→2→1 across
+        edge overlaps and reaches 4 at the centre cross. The final probability
+        map is ``acc / wsum``, i.e. a per-pixel weighted local average, which
+        normalises into a seamless, monotonic (but non-linear) blend at full
+        image resolution.
+
         Returns a float32 (H, W) probability map (caller thresholds).
         """
         h, w = image.shape[:2]

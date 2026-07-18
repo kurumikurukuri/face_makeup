@@ -45,6 +45,7 @@ class RenderingPipeline:
         self._hair_segmenter = hair_segmenter
         # Cache keyed by ImageContext object (auto-cleanup via weak references)
         self._cache: WeakKeyDictionary[ImageContext, np.ndarray] = WeakKeyDictionary()
+        self._closed = False
 
         logger.debug("RenderingPipeline initialized")
 
@@ -70,7 +71,13 @@ class RenderingPipeline:
 
         Returns:
             Rendered RGB image with all makeup applied.
+
+        Raises:
+            RuntimeError: If the pipeline has been closed (``close()`` called).
         """
+        if self._closed:
+            raise RuntimeError("RenderingPipeline has been closed")
+
         # Return cached result if available and not debug mode
         if context in self._cache and not debug:
             logger.debug("Returning cached render result")
@@ -126,6 +133,7 @@ class RenderingPipeline:
                 logger.warning(
                     "Error closing HairSegmenter", exc_info=True,
                 )
+        self._closed = True
 
     def invalidate_cache(self, context: ImageContext) -> None:
         """

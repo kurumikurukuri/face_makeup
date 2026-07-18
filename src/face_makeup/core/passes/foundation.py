@@ -56,8 +56,10 @@ class FoundationMaskStrategy(MaskStrategy):
     any holes are carved.
     """
 
-    def __init__(self, softness: float = 0.5):
+    def __init__(self, softness: float = 0.5, feather_scale: float = 0.04, soften_floor: float = 0.1):
         self._softness = softness
+        self._feather_scale = feather_scale
+        self._soften_floor = soften_floor
 
     def generate(
         self,
@@ -76,8 +78,11 @@ class FoundationMaskStrategy(MaskStrategy):
 
         # Distance-based feather using the shared soften_mask path — consistent
         # edge profile with every other pass.
-        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
-        return soften_mask(mask, feather_px)
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._feather_scale,
+        )
+        return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
 
 class FoundationBlendStrategy(BlendStrategy):
@@ -110,7 +115,11 @@ class FoundationPass(MakeupPass):
             pass_type="foundation",
             priority=0,
             params=params,
-            mask_strategy=FoundationMaskStrategy(softness=params.softness),
+            mask_strategy=FoundationMaskStrategy(
+                softness=params.softness,
+                feather_scale=params._FEATHER_SCALE,
+                soften_floor=params._SOFTEN_FLOOR,
+            ),
             blend_strategy=FoundationBlendStrategy(),
             exclusion_landmarks=_EXCLUSION_REGIONS,
         )
