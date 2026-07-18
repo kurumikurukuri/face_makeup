@@ -130,6 +130,8 @@ class TestProcessorReuse:
     def test_processor_reuse_multiple_images(self, processor, test_images_dir):
         """Test that processor can process multiple images."""
         image_files = sorted(test_images_dir.glob("*.png")) + sorted(test_images_dir.glob("*.jpg"))
+        if not image_files:
+            pytest.skip("No test images found")
 
         success_count = 0
         for img_path in image_files[:3]:  # Test first 3 images

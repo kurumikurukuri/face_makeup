@@ -64,22 +64,6 @@ git clone https://github.com/kurumikurukuri/face_makeup.git
 cd face_makeup
 ```
 
-#### Poetry（推奨）
-
-```bash
-# インストール
-poetry install
-
-# 開発用（テスト含む）
-poetry install --extras dev
-
-# Streamlit Webアプリを使う場合
-poetry install --extras app
-
-# すべてインストール
-poetry install --extras "dev app"
-```
-
 #### pip
 
 ```bash
@@ -115,10 +99,10 @@ from face_makeup import MakeupProcessor
 processor = MakeupProcessor()
 
 # 画像を開く（顔検出・ランドマーク抽出を実行）
-ctx = processor.open_path("input.jpg")
-
-# 顔が検出されたか確認
-if ctx.face_count == 0:
+# 顔が1枚も検出できない場合は ValueError が送出される
+try:
+    ctx = processor.open_path("input.jpg")
+except ValueError:
     print("顔が検出されませんでした")
 else:
     # 検出された顔にメイクを適用
@@ -129,6 +113,8 @@ else:
     face.eyeliner(color=(0, 0, 0), opacity=0.8, thickness=2)              # アイライナー
     face.eyeiris(color=(100, 150, 255), opacity=0.5)                      # カラコン
     face.tear_bag_highlight(color=(255, 255, 255), opacity=0.3, size=0.8) # 涙袋ハイライト
+    face.tear_bag_shadow(color=(150, 110, 90), opacity=0.4, size=0.8)    # 涙袋シャドウ
+    face.foundation(color=(230, 200, 190), opacity=0.3)                  # ファンデーション
 
     # レンダリングして保存
     result = ctx.render()
@@ -161,16 +147,25 @@ streamlit run apps/streamlit_app.py
 
 **A:** `show()` はOpenCVのGUIウィンドウを使用するため、WSLやヘッドレス環境では動作しません。代わりに `ctx.save()` で保存してください。
 
-### Q: 顔が検出されない場合は？
-
-**A:** 以下を確認してください：
-- 画像内に顔が含まれていること
-- 顔が十分な大きさで写っていること（画像の10%以上推奨）
-- 顔が極端に傾いていないこと
-
 ## ドキュメント
 
-リリース時に追加予定
+- [アーキテクチャ](docs/architecture.md) — パイプライン設計・Strategy パターン・2フェーズレンダリング
+- [クイックリファレンス](docs/quick-reference.md) — Face API 全メソッドとパラメータ
+
+## テスト画像について
+
+本リポジトリのテストでは、実際の顔写真を使用したテストを実行できます。
+テスト画像は `tests/test_images/` ディレクトリに配置してください。
+
+### テスト画像がない場合
+
+テスト画像がなくてもテスト全体が停止することはありません。
+画像を必要とするテストは自動的にスキップされ、その他のテストは通常通り実行されます。
+
+```bash
+# テスト画像なしでも全テストを実行可能
+pytest
+```
 
 ## ライセンス
 
@@ -180,4 +175,4 @@ streamlit run apps/streamlit_app.py
 
 ---
 
-本リポジトリは [Claude Code](https://claude.com/claude-code) により生成されています。
+本リポジトリのコードは [Claude Code](https://claude.com/claude-code) との協働により作成されています。

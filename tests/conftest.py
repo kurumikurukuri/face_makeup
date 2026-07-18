@@ -4,7 +4,7 @@ Test images must be placed manually in tests/test_images/.
 Use CC0 / Public Domain images, or images you own the rights to.
 Free sources: https://www.pexels.com, https://pixabay.com, https://unsplash.com
 Recommended: 640x480 or larger color portrait (PNG or JPEG).
-``test_image`` / ``test_image_path`` will fail with a clear message if no
+``test_image`` / ``test_image_path`` will skip with a clear message if no
 images are found; ``sample_face_image`` falls back to a synthetic image.
 """
 import sys
@@ -49,7 +49,7 @@ def test_image(ensure_test_images, test_images_dir):
             if img is not None:
                 return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-    pytest.fail("No test images found")
+    pytest.skip("No test images found")
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ def test_image_path(ensure_test_images, test_images_dir):
         if files:
             return str(files[0])
 
-    pytest.fail("No test images found")
+    pytest.skip("No test images found")
 
 
 @pytest.fixture
