@@ -154,6 +154,11 @@ class EyeLinerParams(PartParams):
     """Parameters for eyeliner
     Specifies the thickness.
     """
+    # Per-part feather calibration (same as PartParams defaults — the thin
+    # liner stroke keeps the standard feather width and soften floor).
+    _FEATHER_SCALE: ClassVar[float] = 0.04
+    _SOFTEN_FLOOR: ClassVar[float] = 0.1
+
     thickness: int = 2
 
     def __post_init__(self):

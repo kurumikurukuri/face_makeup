@@ -13,6 +13,7 @@ from face_makeup.constants import (
 from face_makeup.core.passes.eyeliner import (
     EyelinerBlendStrategy,
     EyelinerMaskStrategy,
+    EyelinerPass,
 )
 from face_makeup.core.types import (
     ColorParams,
@@ -137,3 +138,46 @@ class TestEyelinerBlendStrategy:
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert result.shape == solid_gray.shape
+
+
+# ── EyelinerPass ─────────────────────────────────────────────────────────────
+
+
+class TestEyelinerPass:
+    """Tests for EyelinerPass construction and wiring."""
+
+    @pytest.fixture
+    def params(self):
+        return EyeLinerParams(
+            color_params=ColorParams(target_rgb=(0, 0, 0)),
+            opacity=0.9,
+            softness=0.2,
+            thickness=3,
+        )
+
+    @pytest.mark.parametrize("side", ["left", "right"])
+    def test_pass_type(self, params, side):
+        p = EyelinerPass(params, side)
+        assert p.pass_type == f"eyeliner_{side}"
+
+    def test_priority(self, params):
+        p = EyelinerPass(params, "left")
+        assert p.priority == 30
+
+    def test_has_mask_strategy(self, params):
+        p = EyelinerPass(params, "left")
+        assert isinstance(p.mask_strategy, EyelinerMaskStrategy)
+
+    def test_has_blend_strategy(self, params):
+        p = EyelinerPass(params, "left")
+        assert isinstance(p.blend_strategy, EyelinerBlendStrategy)
+
+    def test_mask_strategy_wires_params(self, params):
+        """EyelinerPass must thread thickness, softness, AND the per-part
+        feather/soften calibration into the strategy — previously only
+        thickness and softness were passed."""
+        p = EyelinerPass(params, "left")
+        assert p.mask_strategy._thickness == 3
+        assert p.mask_strategy._softness == 0.2
+        assert p.mask_strategy._feather_scale == EyeLinerParams._FEATHER_SCALE
+        assert p.mask_strategy._soften_floor == EyeLinerParams._SOFTEN_FLOOR

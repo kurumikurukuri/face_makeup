@@ -159,6 +159,25 @@ class Face:
         if not isinstance(glitter, (int, float)) or not 0.0 <= glitter <= 1.0:
             raise ValueError(f"glitter must be 0.0-1.0, got {glitter}")
 
+    @staticmethod
+    def _validate_common(
+        color: tuple[int, int, int], opacity: float, softness: float
+    ) -> None:
+        """
+        Validate the color/opacity/softness triplet shared by every makeup method.
+
+        Args:
+            color: RGB color tuple (R, G, B).
+            opacity: Makeup strength 0.0-1.0.
+            softness: Feather width as a face-size ratio 0.0-1.0.
+
+        Raises:
+            ValueError: If any value is out of its valid range.
+        """
+        Face._validate_color(color)
+        Face._validate_opacity(opacity)
+        Face._validate_softness(softness)
+
     def __init__(
         self,
         face_id: int,
@@ -223,9 +242,7 @@ class Face:
         Examples:
             >>> face.lip(color=(255, 100, 100), opacity=0.5)
         """
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         params = LipsParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
@@ -265,9 +282,7 @@ class Face:
             >>> face.cheek(color=(255, 180, 180), opacity=0.3)
         """
         self._validate_side(side)
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         params = CheekParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
@@ -327,9 +342,7 @@ class Face:
         """
         self._validate_side(side)
         self._validate_zone(zone)
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         self._validate_glitter(glitter)
         params = EyeShadowParams(
             color_params=ColorParams(target_rgb=color),
@@ -373,9 +386,7 @@ class Face:
             >>> face.eyeliner(color=(0, 0, 0), opacity=1.0, thickness=2)
         """
         self._validate_side(side)
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         params = EyeLinerParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
@@ -422,9 +433,7 @@ class Face:
             >>> face.eyeiris(color=(100, 150, 255), opacity=0.5, hue_shift=True)
         """
         self._validate_side(side)
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         params = EyeIrisParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
@@ -475,9 +484,7 @@ class Face:
             >>> face.tear_bag_highlight(color=(255, 255, 255), glitter=0.5)
         """
         self._validate_side(side)
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         self._validate_glitter(glitter)
         params = TearBagHighlightParams(
             color_params=ColorParams(target_rgb=color),
@@ -525,9 +532,7 @@ class Face:
             >>> face.tear_bag_shadow(color=(150, 110, 90), opacity=0.4, size=0.8)
         """
         self._validate_side(side)
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         params = TearBagShadowParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,
@@ -569,9 +574,7 @@ class Face:
         Examples:
             >>> face.foundation(color=(255, 220, 200), opacity=0.3)
         """
-        self._validate_color(color)
-        self._validate_opacity(opacity)
-        self._validate_softness(softness)
+        self._validate_common(color, opacity, softness)
         params = FoundationParams(
             color_params=ColorParams(target_rgb=color),
             opacity=opacity,

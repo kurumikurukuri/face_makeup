@@ -5,18 +5,14 @@ Usage:
     streamlit run apps/streamlit_app.py
 """
 import sys
+import threading
 from pathlib import Path
 
 # Add src directory to path for imports when package is not installed
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
-import ipaddress
-import socket
-from urllib.parse import urlparse, urlunparse
-
 import streamlit as st
-import requests
 from PIL import Image, ImageOps
 import numpy as np
 import io
@@ -37,15 +33,22 @@ from face_makeup import MakeupProcessor
 # Helper Functions
 # ========================================
 
-def rgb_to_hex(r, g, b):
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
-def hex_to_rgb(hex_color):
+def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     hex_color = hex_color.lstrip('#')
     if len(hex_color) != 6:
         raise ValueError(f"Invalid hex color: #{hex_color}")
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _apply_signature(image_source) -> tuple:
+    """Signature of the current image + makeup params.
+
+    Used to detect when a stored result_image has gone stale — the user
+    changed the photo or a slider without re-clicking apply.
+    """
+    params = tuple(st.session_state[key] for key in _SESSION_DEFAULTS)
+    file_id = getattr(image_source, "file_id", None)
+    return (file_id, params)
 
 
 def _on_separate_colors_change():
@@ -60,6 +63,9 @@ def _on_separate_colors_change():
 
 
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+# Reject uploads whose longer edge exceeds this — friendlier than letting the
+# decompression-bomb guard fire mid-pipeline, and bounds processing memory.
+MAX_IMAGE_DIMENSION = 4096
 # Cap decoded pixel count to block decompression-bomb DoS — a modestly sized
 # compressed upload can expand to hundreds of MB of RGB. ~24M px ≈ 5000x5000.
 MAX_IMAGE_PIXELS = 24_000_000
@@ -68,91 +74,126 @@ MAX_IMAGE_PIXELS = 24_000_000
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
-def resolve_safe_url(url: str) -> tuple:
-    """Resolve URL hostname and verify it points to a public IP.
+# MakeupProcessor is NOT thread-safe (see processor.py docstring). The cached
+# instance is shared process-wide across session threads, so every open→render
+# sequence must hold this lock to prevent concurrent access from corrupting
+# detector/pipeline state or mixing one user's input into another's result.
+_PROCESSOR_LOCK = threading.Lock()
 
-    Returns the resolved IP and parsed URL components so the caller can
-    make the HTTP request using the pinned IP, preventing DNS rebinding.
-
-    Args:
-        url: The URL to validate.
-
-    Returns:
-        Tuple of (resolved_ip, hostname, parsed_url) on success.
-
-    Raises:
-        ValueError: If the URL points to a private/internal address or
-            cannot be resolved.
-    """
-    parsed = urlparse(url)
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError("URLにホスト名がありません。")
-    try:
-        resolved_ip = socket.getaddrinfo(hostname, None)[0][4][0]
-    except socket.gaierror:
-        raise ValueError("ホスト名を解決できません。")
-    ip = ipaddress.ip_address(resolved_ip)
-    if not ip.is_global:
-        raise ValueError("内部ネットワークのURLは許可されていません。")
-    return resolved_ip, hostname, parsed
-
-
-def fetch_image_safe(url: str) -> io.BytesIO:
-    """Fetch an image from a URL with SSRF protection and size limit.
-
-    Resolves the hostname once and pins the IP for the actual request,
-    preventing DNS rebinding. Streams the response and enforces a max
-    size of MAX_IMAGE_SIZE bytes.
-
-    Args:
-        url: The image URL to fetch.
-
-    Returns:
-        BytesIO containing the image data.
-
-    Raises:
-        ValueError: If the URL is unsafe or the response exceeds the size limit.
-        requests.exceptions.RequestException: On network errors.
-    """
-    resolved_ip, hostname, parsed = resolve_safe_url(url)
-
-    # Build a URL with the resolved IP to pin the connection
-    pinned_url = urlunparse(parsed._replace(netloc=resolved_ip))
-
-    response = requests.get(
-        pinned_url,
-        headers={"Host": hostname},
-        timeout=10,
-        stream=True,
-        verify=True,
-        allow_redirects=False,
-    )
-    if 300 <= response.status_code < 400:
-        response.close()
-        raise ValueError(
-            "リダイレクトする URL は許可されていません。直接の画像 URL を指定してください。"
-        )
-    response.raise_for_status()
-
-    # Read in chunks with size limit
-    chunks = []
-    total = 0
-    for chunk in response.iter_content(chunk_size=64 * 1024):
-        total += len(chunk)
-        if total > MAX_IMAGE_SIZE:
-            response.close()
-            raise ValueError(
-                f"画像サイズが上限（{MAX_IMAGE_SIZE // (1024 * 1024)}MB）を超えています。"
-            )
-        chunks.append(chunk)
-
-    return io.BytesIO(b"".join(chunks))
 
 @st.cache_resource
-def get_processor():
+def get_processor() -> MakeupProcessor:
     """Get cached MakeupProcessor instance."""
     return MakeupProcessor()
+
+
+def _apply_makeup(
+    processor: MakeupProcessor, image_np: np.ndarray
+) -> tuple[np.ndarray, int]:
+    """Configure makeup on the first face and render. Returns (result, face_count).
+
+    Runs the non-thread-safe open→configure→render sequence; the caller must
+    hold _PROCESSOR_LOCK when invoking this on the shared processor instance.
+    """
+    ctx = processor.open(image_np)
+    face = ctx.faces[0]
+
+    if st.session_state.foundation_enabled:
+        face.foundation(
+            color=hex_to_rgb(st.session_state.foundation_color),
+            opacity=st.session_state.foundation_opacity,
+            softness=0.5
+        )
+
+    if st.session_state.lips_enabled:
+        face.lip(
+            color=hex_to_rgb(st.session_state.lips_color),
+            opacity=st.session_state.lips_opacity,
+            softness=0.5
+        )
+
+    if st.session_state.cheek_enabled:
+        face.cheek(
+            color=hex_to_rgb(st.session_state.cheek_color),
+            opacity=st.session_state.cheek_opacity,
+            center=(st.session_state.cheek_center_x, st.session_state.cheek_center_y),
+            radius=(st.session_state.cheek_radius_x, st.session_state.cheek_radius_y),
+            softness=st.session_state.cheek_softness,
+            side='both'
+        )
+
+    if st.session_state.eyelid_enabled:
+        face.eyelid(
+            color=hex_to_rgb(st.session_state.eyelid_color),
+            opacity=st.session_state.eyelid_opacity,
+            softness=0.25,
+            size=1.0,
+            glitter=st.session_state.eyelid_glitter,
+            zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_zone],
+            side='both'
+        )
+
+    if st.session_state.eyelid_rim_enabled:
+        face.eyelid(
+            color=hex_to_rgb(st.session_state.eyelid_rim_color),
+            opacity=st.session_state.eyelid_rim_opacity,
+            softness=0.25,
+            size=0.5,
+            glitter=st.session_state.eyelid_rim_glitter,
+            zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_rim_zone],
+            side='both'
+        )
+
+    if st.session_state.eyeliner_enabled:
+        face.eyeliner(
+            color=hex_to_rgb(st.session_state.eyeliner_color),
+            opacity=0.8,
+            thickness=st.session_state.eyeliner_thickness,
+            softness=0.5,
+            side='both'
+        )
+
+    if st.session_state.tear_bag_enabled:
+        face.tear_bag_highlight(
+            color=hex_to_rgb(st.session_state.tear_bag_highlight_color),
+            opacity=st.session_state.tear_bag_highlight_opacity,
+            softness=0.2,
+            size=st.session_state.tear_bag_size,
+            glitter=st.session_state.tear_bag_highlight_glitter,
+            side='both'
+        )
+        face.tear_bag_shadow(
+            color=hex_to_rgb(st.session_state.tear_bag_shadow_color),
+            opacity=st.session_state.tear_bag_shadow_opacity,
+            thickness=st.session_state.tear_bag_shadow_thickness,
+            softness=0.5,
+            size=st.session_state.tear_bag_size,
+            side='both'
+        )
+
+    if st.session_state.eyeiris_enabled:
+        if st.session_state.eyeiris_separate_colors:
+            face.eyeiris(
+                color=hex_to_rgb(st.session_state.eyeiris_color_left),
+                opacity=st.session_state.eyeiris_opacity,
+                softness=0.1,
+                side='left'
+            )
+            face.eyeiris(
+                color=hex_to_rgb(st.session_state.eyeiris_color_right),
+                opacity=st.session_state.eyeiris_opacity,
+                softness=0.1,
+                side='right'
+            )
+        else:
+            face.eyeiris(
+                color=hex_to_rgb(st.session_state.eyeiris_color),
+                opacity=st.session_state.eyeiris_opacity,
+                softness=0.1,
+                side='both'
+            )
+
+    return ctx.render(), ctx.face_count
 
 
 # ========================================
@@ -238,8 +279,8 @@ with st.sidebar:
 
     st.markdown("---")
 
-    with st.expander("📖 使い方", expanded=True):  
-    # Usage instructions
+    with st.expander("📖 使い方", expanded=True):
+        # Usage instructions
         st.markdown("""
         1. 顔写真をアップロード
         2. 各パラメータを調整（🎨ファンデ、💋リップ、🌸チーク、👁️アイシャドウ、✏️アイライナー、👁️カラコン）
@@ -620,15 +661,6 @@ with st.sidebar:
                 help="カラーコンタクトの強さ（0: 透明、1: 最大）"
             )
 
-    # Debug mode
-    st.markdown("---")
-    st.subheader("デバッグ設定")
-    debug_mode = st.checkbox(
-        "デバッグモード",
-        value=False,
-        help="有効にすると outputs/debug/ にデバッグ画像を保存します"
-    )
-
     # Reset button
     st.markdown("---")
     if st.button("設定をリセット", use_container_width=True):
@@ -636,6 +668,8 @@ with st.sidebar:
             st.session_state[key] = default
         if 'result_image' in st.session_state:
             del st.session_state['result_image']
+        if '_result_sig' in st.session_state:
+            del st.session_state['_result_sig']
         st.rerun()
 
 
@@ -650,12 +684,11 @@ st.markdown("**パラメータを調整して、オリジナルメイクを作�
 # Image input method selection
 input_method = st.radio(
     "画像の入力方法を選択",
-    ["ファイルアップロード", "カメラ", "URL"],
+    ["ファイルアップロード", "カメラ"],
     horizontal=True
 )
 uploaded_file = None
 camera_image = None
-url_image = None
 
 if input_method == "ファイルアップロード":
     _accepted_types = ["png", "jpg", "jpeg", "webp"]
@@ -668,38 +701,19 @@ if input_method == "ファイルアップロード":
     )
 elif input_method == "カメラ":
     camera_image = st.camera_input("写真を撮影")
-elif input_method == "URL":
-    image_url = st.text_input(
-        "画像のURLを入力",
-        placeholder="https://example.com/image.jpg"
-    )
-    if image_url and st.button("読み込む"):
-        try:
-            if not image_url.startswith(('http://', 'https://')):
-                st.error("有効な HTTP/HTTPS URLを入力してください")
-            else:
-                url_image = fetch_image_safe(image_url)
-        except ValueError as e:
-            st.error(str(e))
-        except requests.exceptions.Timeout:
-            st.error("リクエストがタイムアウトしました。再度お試しください。")
-        except requests.exceptions.RequestException:
-            st.error("画像の読み込みに失敗しました。URLを確認してください。")
-        except Exception:
-            st.error("予期しないエラーが発生しました。")
 
 
-image_source = uploaded_file or camera_image or url_image
+image_source = uploaded_file or camera_image
 
 if image_source is not None:
     try:
         pil_image = Image.open(image_source)
         # Reject oversized images early — a clear dimension cap is friendlier
         # than letting the decompression-bomb guard fire mid-pipeline.
-        if pil_image.width > 4096 or pil_image.height > 4096:
+        if pil_image.width > MAX_IMAGE_DIMENSION or pil_image.height > MAX_IMAGE_DIMENSION:
             raise ValueError(
                 f"画像が大きすぎます（{pil_image.width}x{pil_image.height}）。"
-                f"各辺 4096px 以下にしてください。"
+                f"各辺 {MAX_IMAGE_DIMENSION}px 以下にしてください。"
             )
         pil_image = ImageOps.exif_transpose(pil_image)
         pil_image = pil_image.convert("RGB")
@@ -724,11 +738,7 @@ if image_source is not None:
         if apply_clicked:
             with st.spinner("メイクを適用中..."):
                 try:
-                    # Get processor (cached)
                     processor = get_processor()
-
-                    # Open image and get context
-                    ctx = processor.open(image_np)
 
                     # Check if at least one makeup option is enabled
                     any_enabled = (
@@ -744,127 +754,32 @@ if image_source is not None:
 
                     if not any_enabled:
                         st.info("少なくとも1つのメイクオプションを有効にしてください")
-                    elif ctx.face_count == 0:
-                        st.warning("顔が検出されませんでした。正面顔写真をご使用ください。")
                     else:
-                        # Get the first face
-                        face = ctx.faces[0]
-
-                        # Apply foundation (base layer, priority 0)
-                        if st.session_state.foundation_enabled:
-                            face.foundation(
-                                color=hex_to_rgb(st.session_state.foundation_color),
-                                opacity=st.session_state.foundation_opacity,
-                                softness=0.5
-                            )
-
-                        # Apply lips
-                        if st.session_state.lips_enabled:
-                            face.lip(
-                                color=hex_to_rgb(st.session_state.lips_color),
-                                opacity=st.session_state.lips_opacity,
-                                softness=0.5
-                            )
-
-                        # Apply cheek
-                        if st.session_state.cheek_enabled:
-                            face.cheek(
-                                color=hex_to_rgb(st.session_state.cheek_color),
-                                opacity=st.session_state.cheek_opacity,
-                                center=(st.session_state.cheek_center_x, st.session_state.cheek_center_y),
-                                radius=(st.session_state.cheek_radius_x, st.session_state.cheek_radius_y),
-                                softness=st.session_state.cheek_softness,
-                                side='both'
-                            )
-
-                        # Apply eye shadow — アイホール (size=1.0, full lid)
-                        if st.session_state.eyelid_enabled:
-                            face.eyelid(
-                                color=hex_to_rgb(st.session_state.eyelid_color),
-                                opacity=st.session_state.eyelid_opacity,
-                                softness=0.25,
-                                size=1.0,
-                                glitter=st.session_state.eyelid_glitter,
-                                zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_zone],
-                                side='both'
-                            )
-
-                        # Apply eye shadow — 目の際 (size=0.5, lash line)
-                        if st.session_state.eyelid_rim_enabled:
-                            face.eyelid(
-                                color=hex_to_rgb(st.session_state.eyelid_rim_color),
-                                opacity=st.session_state.eyelid_rim_opacity,
-                                softness=0.25,
-                                size=0.5,
-                                glitter=st.session_state.eyelid_rim_glitter,
-                                zone=_EYELID_ZONE_OPTIONS[st.session_state.eyelid_rim_zone],
-                                side='both'
-                            )
-
-                        # Apply eyeliner
-                        if st.session_state.eyeliner_enabled:
-                            face.eyeliner(
-                                color=hex_to_rgb(st.session_state.eyeliner_color),
-                                opacity=0.8,
-                                thickness=st.session_state.eyeliner_thickness,
-                                softness=0.5,
-                                side='both'
-                            )
-
-                        # Apply tear bag
-                        if st.session_state.tear_bag_enabled:
-                            face.tear_bag_highlight(
-                                color=hex_to_rgb(st.session_state.tear_bag_highlight_color),
-                                opacity=st.session_state.tear_bag_highlight_opacity,
-                                softness=0.2,
-                                size=st.session_state.tear_bag_size,
-                                glitter=st.session_state.tear_bag_highlight_glitter,
-                                side='both'
-                            )
-                            face.tear_bag_shadow(
-                                color=hex_to_rgb(st.session_state.tear_bag_shadow_color),
-                                opacity=st.session_state.tear_bag_shadow_opacity,
-                                thickness=st.session_state.tear_bag_shadow_thickness,
-                                softness=0.5,
-                                size=st.session_state.tear_bag_size,
-                                side='both'
-                            )
-
-                        # Apply eye iris (color contact)
-                        if st.session_state.eyeiris_enabled:
-                            if st.session_state.eyeiris_separate_colors:
-                                face.eyeiris(
-                                    color=hex_to_rgb(st.session_state.eyeiris_color_left),
-                                    opacity=st.session_state.eyeiris_opacity,
-                                    softness=0.1,
-                                    side='left'
-                                )
-                                face.eyeiris(
-                                    color=hex_to_rgb(st.session_state.eyeiris_color_right),
-                                    opacity=st.session_state.eyeiris_opacity,
-                                    softness=0.1,
-                                    side='right'
-                                )
-                            else:
-                                face.eyeiris(
-                                    color=hex_to_rgb(st.session_state.eyeiris_color),
-                                    opacity=st.session_state.eyeiris_opacity,
-                                    softness=0.1,
-                                    side='both'
-                                )
-
-                        # Render result
-                        result_np = ctx.render(debug=debug_mode)
+                        # Serialize the non-thread-safe open→render sequence
+                        # across sessions sharing the cached processor instance.
+                        with _PROCESSOR_LOCK:
+                            result_np, face_count = _apply_makeup(processor, image_np)
                         st.session_state['result_image'] = result_np
+                        st.session_state['_result_sig'] = _apply_signature(image_source)
 
-                        # Display face detection count info
-                        if ctx.face_count > 1:
-                            st.info(f"{ctx.face_count}つの顔を検出しました。最初の顔のみにメイクを適用しています。")
+                        if face_count > 1:
+                            st.info(f"{face_count}つの顔を検出しました。最初の顔のみにメイクを適用しています。")
 
                 except ValueError as e:
-                    st.error(f"無効な入力です: {str(e)}")
+                    # processor.open() raises ValueError("No face detected") when no
+                    # face is found — surface a friendly message instead of leaking
+                    # the raw English error through the generic "invalid input" text.
+                    if "No face detected" in str(e):
+                        st.warning("顔が検出されませんでした。正面顔写真をご使用ください。")
+                    else:
+                        st.error(f"無効な入力です: {str(e)}")
                 except Exception as e:
                     st.error(f"メイク処理に失敗しました: {str(e)}")
+
+        # Invalidate stale result when the photo or any parameter changed
+        if st.session_state.get('_result_sig') != _apply_signature(image_source):
+            if 'result_image' in st.session_state:
+                del st.session_state['result_image']
 
         if 'result_image' in st.session_state:
             with col2:

@@ -295,8 +295,7 @@ class MakeupProcessor:
             model_path = model_dir / _HAIR_MODEL_FILENAME
 
             if not model_path.exists():
-                if not _download_hair_model(model_path):
-                    pass  # Download failed — warning already logged
+                _download_hair_model(model_path)  # warning logged inside on failure
             elif not _verify_model_checksum(model_path):
                 logger.warning(
                     "Existing %s checksum mismatch — possible tampering. "
@@ -304,8 +303,7 @@ class MakeupProcessor:
                     _HAIR_MODEL_FILENAME,
                 )
                 model_path.unlink(missing_ok=True)
-                if not _download_hair_model(model_path):
-                    pass  # Download failed — warning already logged
+                _download_hair_model(model_path)  # warning logged inside on failure
 
             if model_path.exists():
                 from face_makeup.core.hair_segmenter import HairSegmenter
@@ -327,6 +325,8 @@ class MakeupProcessor:
         # Create I/O handler
         self._io_handler = IOHandler()
 
+        self._closed = False
+
         logger.info("MakeupProcessor initialized")
 
     @property
@@ -346,7 +346,12 @@ class MakeupProcessor:
 
         Returns:
             ImageContext: Context for subsequent processing.
+
+        Raises:
+            RuntimeError: If the processor has already been closed.
         """
+        if self._closed:
+            raise RuntimeError("MakeupProcessor is closed")
         self._validate_image(image)
 
         logger.debug(f"Opening image: shape={image.shape}")
@@ -454,7 +459,9 @@ class MakeupProcessor:
 
         Closes the face detector, landmark extractor, and rendering
         pipeline (including the hair segmenter if loaded).  Idempotent —
-        safe to call multiple times.
+        safe to call multiple times. After close(), open()/open_path()
+        raise RuntimeError instead of hitting opaque MediaPipe errors on
+        already-closed internal objects.
         """
         try:
             self._detector.close()
@@ -468,6 +475,7 @@ class MakeupProcessor:
             self._rendering_pipeline.close()
         except Exception:
             logger.warning("Error closing RenderingPipeline", exc_info=True)
+        self._closed = True
 
     def __enter__(self) -> "MakeupProcessor":
         return self

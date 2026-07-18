@@ -37,6 +37,8 @@ class EyelinerMaskStrategy(MaskStrategy):
         part_name: str,
         thickness: int = 2,
         softness: float = 0.5,
+        feather_scale: float = 0.04,
+        soften_floor: float = 0.1,
     ):
         self._part_name = part_name
         self._indices_dict = _INDICES_MAP[part_name]
@@ -44,6 +46,8 @@ class EyelinerMaskStrategy(MaskStrategy):
         self._corrector = EyelinerCorrector()
         self._thickness = thickness
         self._softness = softness
+        self._feather_scale = feather_scale
+        self._soften_floor = soften_floor
 
     def generate(
         self,
@@ -55,7 +59,10 @@ class EyelinerMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._feather_scale,
+        )
 
         if image is not None and self._correction_map:
             mask = self._generate_corrected(coords, image_shape, image)
@@ -68,7 +75,7 @@ class EyelinerMaskStrategy(MaskStrategy):
             kernel = np.ones((self._thickness, self._thickness), np.uint8)
             mask = cv2.dilate(mask, kernel, iterations=1)
 
-        return soften_mask(mask, feather_px)
+        return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
     def _generate_simple(
         self, coords: np.ndarray, image_shape: tuple[int, int]
@@ -153,7 +160,9 @@ class EyelinerPass(MakeupPass):
             priority=30,
             params=params,
             mask_strategy=EyelinerMaskStrategy(
-                part_name, params.thickness, params.softness
+                part_name, params.thickness, params.softness,
+                feather_scale=params._FEATHER_SCALE,
+                soften_floor=params._SOFTEN_FLOOR,
             ),
             blend_strategy=EyelinerBlendStrategy(),
         )

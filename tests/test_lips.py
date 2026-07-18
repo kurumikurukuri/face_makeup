@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from face_makeup.constants import LOWER_LIP_INDICES, UPPER_LIP_INDICES
-from face_makeup.core.passes.lips import LipBlendStrategy, LipMaskStrategy
+from face_makeup.core.passes.lips import LipBlendStrategy, LipMaskStrategy, LipsPass
 from face_makeup.core.types import ColorParams, LipsParams
 
 
@@ -132,3 +132,43 @@ class TestLipBlendStrategy:
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result[0:10, 0:10], solid_gray[0:10, 0:10])
+
+
+# ── LipsPass ─────────────────────────────────────────────────────────────────
+
+
+class TestLipsPass:
+    """Tests for LipsPass construction and wiring."""
+
+    @pytest.fixture
+    def params(self):
+        return LipsParams(
+            color_params=ColorParams(target_rgb=(200, 50, 80)),
+            opacity=0.8,
+            softness=0.3,
+        )
+
+    def test_pass_type(self, params):
+        p = LipsPass(params)
+        assert p.pass_type == "lips"
+
+    def test_priority(self, params):
+        p = LipsPass(params)
+        assert p.priority == 20
+
+    def test_has_mask_strategy(self, params):
+        p = LipsPass(params)
+        assert isinstance(p.mask_strategy, LipMaskStrategy)
+
+    def test_has_blend_strategy(self, params):
+        p = LipsPass(params)
+        assert isinstance(p.blend_strategy, LipBlendStrategy)
+
+    def test_mask_strategy_wires_params(self, params):
+        """LipsPass must thread softness AND the per-part feather/soften
+        calibration (_FEATHER_SCALE / _SOFTEN_FLOOR) into the strategy —
+        previously only softness was passed."""
+        p = LipsPass(params)
+        assert p.mask_strategy._softness == 0.3
+        assert p.mask_strategy._feather_scale == LipsParams._FEATHER_SCALE
+        assert p.mask_strategy._soften_floor == LipsParams._SOFTEN_FLOOR

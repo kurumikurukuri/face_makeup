@@ -16,10 +16,18 @@ import pytest
 
 from face_makeup.core.passes.tearbag import (
     TearBagHighlightBlendStrategy,
+    TearBagHighlightMaskStrategy,
+    TearBagHighlightPass,
+    TearBagShadowBlendStrategy,
     TearBagShadowMaskStrategy,
+    TearBagShadowPass,
     _lerp_outer,
 )
-from face_makeup.core.types import ColorParams, TearBagHighlightParams
+from face_makeup.core.types import (
+    ColorParams,
+    TearBagHighlightParams,
+    TearBagShadowParams,
+)
 
 
 # ── shared geometry ───────────────────────────────────────────────────────────
@@ -104,6 +112,99 @@ class TestHighlightScreenBlend:
         )
         result = strategy.apply(image, mask, params)
         assert result is not image
+
+
+# ── highlight mask geometry ───────────────────────────────────────────────────
+
+
+class TestHighlightMaskGenerate:
+    def test_fills_area_between_ridge_and_lash_lines(self):
+        """A point strictly between the ridge (y=10) and lash (y=20) lines is
+        filled; a point above the ridge line is not."""
+        coords = _flat_line_coords()
+        strategy = TearBagHighlightMaskStrategy(
+            _RIDGE, _LASH, size=1.0, envelope=(1.0,) * 7, softness=0.0,
+        )
+        mask = strategy.generate(coords, (30, 10))
+        assert mask.shape == (30, 10)
+        assert mask.dtype == np.float32
+        assert mask[15, 3] == 1.0
+        assert mask[2, 3] == 0.0
+
+    def test_size_zero_produces_degenerate_near_zero_area_mask(self):
+        """size=0 folds the outer edge onto the lash line, producing a
+        zero-height polygon — filled area collapses to a thin scanline
+        instead of the full ridge-to-lash band."""
+        coords = _flat_line_coords()
+        image_shape = (30, 10)
+        full = TearBagHighlightMaskStrategy(
+            _RIDGE, _LASH, size=1.0, envelope=(1.0,) * 7, softness=0.0,
+        )
+        degenerate = TearBagHighlightMaskStrategy(
+            _RIDGE, _LASH, size=0.0, softness=0.0,
+        )
+        full_mask = full.generate(coords, image_shape)
+        degenerate_mask = degenerate.generate(coords, image_shape)
+        assert degenerate_mask.sum() < full_mask.sum() * 0.2
+
+    def test_fewer_than_three_points_returns_empty_mask(self):
+        """A single-point ridge/lash pair can't form a polygon (< 3 points),
+        so generate() takes the early-return branch."""
+        coords = _flat_line_coords()
+        strategy = TearBagHighlightMaskStrategy(
+            [0], [7], size=1.0, envelope=(1.0,), softness=0.0,
+        )
+        mask = strategy.generate(coords, (30, 10))
+        assert mask.shape == (30, 10)
+        assert mask.sum() == 0.0
+
+
+# ── shadow blend ──────────────────────────────────────────────────────────────
+
+
+class TestShadowBlendStrategy:
+    def test_applies_matte_color_over_masked_region(self):
+        """TearBagShadowBlendStrategy delegates to blend_matte: a fully
+        masked region moves toward the target colour."""
+        strategy = TearBagShadowBlendStrategy()
+        image = np.zeros((20, 20, 3), dtype=np.uint8)
+        mask = np.ones((20, 20), dtype=np.float32)
+        params = TearBagShadowParams(
+            color_params=ColorParams(target_rgb=(150, 110, 90)),
+            opacity=1.0,
+        )
+        result = strategy.apply(image, mask, params)
+        assert result.dtype == np.uint8
+        assert result.shape == image.shape
+        assert result is not image
+        assert result.mean() > image.mean()
+
+
+# ── pass construction ─────────────────────────────────────────────────────────
+
+
+class TestPassConstruction:
+    def test_highlight_pass_wires_strategies_and_priority(self):
+        params = TearBagHighlightParams(
+            color_params=ColorParams(target_rgb=(255, 255, 255)),
+            opacity=0.3,
+        )
+        makeup_pass = TearBagHighlightPass(params, "tear_bag_highlight_left")
+        assert makeup_pass.pass_type == "tear_bag_highlight_left"
+        assert makeup_pass.priority == 22
+        assert isinstance(makeup_pass.mask_strategy, TearBagHighlightMaskStrategy)
+        assert isinstance(makeup_pass.blend_strategy, TearBagHighlightBlendStrategy)
+
+    def test_shadow_pass_wires_strategies_and_priority(self):
+        params = TearBagShadowParams(
+            color_params=ColorParams(target_rgb=(150, 110, 90)),
+            opacity=0.4,
+        )
+        makeup_pass = TearBagShadowPass(params, "tear_bag_shadow_right")
+        assert makeup_pass.pass_type == "tear_bag_shadow_right"
+        assert makeup_pass.priority == 27
+        assert isinstance(makeup_pass.mask_strategy, TearBagShadowMaskStrategy)
+        assert isinstance(makeup_pass.blend_strategy, TearBagShadowBlendStrategy)
 
 
 # ── shadow mask dilation ──────────────────────────────────────────────────────

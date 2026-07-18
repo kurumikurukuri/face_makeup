@@ -26,8 +26,15 @@ class LipMaskStrategy(MaskStrategy):
     pipeline can apply exclusions to it before blending.
     """
 
-    def __init__(self, softness: float):
+    def __init__(
+        self,
+        softness: float,
+        feather_scale: float = 0.04,
+        soften_floor: float = 0.1,
+    ):
         self._softness = softness
+        self._feather_scale = feather_scale
+        self._soften_floor = soften_floor
 
     def generate(
         self,
@@ -39,7 +46,10 @@ class LipMaskStrategy(MaskStrategy):
         h, w = image_shape
         mask = np.zeros((h, w), dtype=np.uint8)
 
-        feather_px = feather_px_from_softness(self._softness, coords, image_shape)
+        feather_px = feather_px_from_softness(
+            self._softness, coords, image_shape,
+            feather_scale=self._feather_scale,
+        )
 
         shift = _SUBPIXEL_BITS
         scale = 1 << shift
@@ -53,7 +63,7 @@ class LipMaskStrategy(MaskStrategy):
             cv2.fillPoly(part_mask, [points_shifted], 255, shift=shift)
             mask = cv2.bitwise_or(mask, part_mask)
 
-        return soften_mask(mask, feather_px)
+        return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
 
 class LipBlendStrategy(BlendStrategy):
@@ -81,6 +91,10 @@ class LipsPass(MakeupPass):
             pass_type="lips",
             priority=20,
             params=params,
-            mask_strategy=LipMaskStrategy(params.softness),
+            mask_strategy=LipMaskStrategy(
+                params.softness,
+                feather_scale=params._FEATHER_SCALE,
+                soften_floor=params._SOFTEN_FLOOR,
+            ),
             blend_strategy=LipBlendStrategy(),
         )

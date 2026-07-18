@@ -16,12 +16,6 @@ from face_makeup.core.blend.blend_utils import (
 from face_makeup.core.types import CheekParams, FaceLandmarks
 
 
-_INDICES_MAP = {
-    "cheek_left": CHEEK_LEFT_INDICES,
-    "cheek_right": CHEEK_RIGHT_INDICES,
-}
-
-
 class CheekMaskStrategy(MaskStrategy):
     """Soft cheek mask: convex hull ∩ 3D-projected ellipse, then edge-softened.
 
@@ -108,7 +102,7 @@ class CheekMaskStrategy(MaskStrategy):
                 image_shape, base_mask, params, landmarks, cheek_side, return_debug_info
             )
 
-        # Legacy 2D processing (backward compatibility)
+        # 2D fallback when 3D landmarks are unavailable (points_3d is None).
         coords = np.column_stack(np.where(mask_binary > 0))
         y_min, x_min = coords.min(axis=0)
         y_max, x_max = coords.max(axis=0)

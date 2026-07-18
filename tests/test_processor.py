@@ -321,3 +321,21 @@ class TestMakeupProcessorResourceCleanup:
             assert processor is not None
         # After __exit__, close() has been called — safe to call again.
         processor.close()
+
+    def test_open_after_close_raises_runtime_error(self, test_image):
+        """open() on a closed processor raises RuntimeError instead of
+        hitting an opaque MediaPipe error on already-closed internals."""
+        from face_makeup.processor import MakeupProcessor, ProcessorConfig
+        processor = MakeupProcessor(config=ProcessorConfig())
+        processor.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            processor.open(test_image)
+
+    def test_open_path_after_close_raises_runtime_error(self, test_image_path):
+        """open_path() on a closed processor raises RuntimeError (it
+        delegates to open(), which carries the guard)."""
+        from face_makeup.processor import MakeupProcessor, ProcessorConfig
+        processor = MakeupProcessor(config=ProcessorConfig())
+        processor.close()
+        with pytest.raises(RuntimeError, match="closed"):
+            processor.open_path(test_image_path)

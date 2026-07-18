@@ -13,6 +13,7 @@ from face_makeup.constants import (
 from face_makeup.core.passes.eyeiris import (
     EyeIrisBlendStrategy,
     EyeIrisMaskStrategy,
+    EyeIrisPass,
 )
 from face_makeup.core.types import (
     ColorParams,
@@ -159,3 +160,49 @@ class TestEyeIrisBlendStrategy:
         result = strategy.apply(solid_gray, center_mask, params)
         assert result.shape == solid_gray.shape
         assert result.dtype == np.uint8
+
+
+# ── EyeIrisPass ──────────────────────────────────────────────────────────────
+
+
+class TestEyeIrisPass:
+    """Tests for EyeIrisPass construction and wiring."""
+
+    @pytest.fixture
+    def params(self):
+        return EyeIrisParams(
+            color_params=ColorParams(target_rgb=(100, 150, 255)),
+            opacity=0.8,
+            softness=0.15,
+        )
+
+    @pytest.mark.parametrize("side", ["left", "right"])
+    def test_pass_type(self, params, side):
+        p = EyeIrisPass(params, side)
+        assert p.pass_type == f"eyeiris_{side}"
+
+    def test_priority(self, params):
+        p = EyeIrisPass(params, "left")
+        assert p.priority == 35
+
+    def test_has_mask_strategy(self, params):
+        p = EyeIrisPass(params, "left")
+        assert isinstance(p.mask_strategy, EyeIrisMaskStrategy)
+
+    def test_has_blend_strategy(self, params):
+        p = EyeIrisPass(params, "left")
+        assert isinstance(p.blend_strategy, EyeIrisBlendStrategy)
+
+    def test_mask_strategy_wires_params(self, params):
+        """EyeIrisPass must thread softness AND the per-part feather/soften
+        calibration into the strategy."""
+        p = EyeIrisPass(params, "left")
+        assert p.mask_strategy._softness == 0.15
+        assert p.mask_strategy._feather_scale == EyeIrisParams._FEATHER_SCALE
+        assert p.mask_strategy._soften_floor == EyeIrisParams._SOFTEN_FLOOR
+
+    def test_clip_landmarks_set_to_eye_contour(self, params):
+        """EyeIrisPass clips the iris ellipse to the eye-opening contour so
+        colour never bleeds onto eyelid skin."""
+        p = EyeIrisPass(params, "left")
+        assert p.clip_landmarks == [list(LEFT_EYE_INDICES)]

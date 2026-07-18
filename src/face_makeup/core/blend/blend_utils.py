@@ -9,6 +9,14 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from face_makeup.core.blend.glitter import (
+    apply_bloom,
+    compute_iridescent_colors,
+    compute_static_twinkle,
+    generate_particles,
+    render_sparkle_overlay,
+)
+
 
 # Opacity retained at the very mask edge. The feather ramps from this floor up
 # to 1.0 across the feather band, so the boundary keeps a little colour (no hard
@@ -298,14 +306,6 @@ def apply_glitter(
         RGB uint8 image with glitter overlay applied. Always returns a fresh
         ndarray; the input image is never mutated or returned by reference.
     """
-    from face_makeup.core.blend.glitter import (
-        apply_bloom,
-        compute_iridescent_colors,
-        compute_static_twinkle,
-        generate_particles,
-        render_sparkle_overlay,
-    )
-
     if glitter_intensity <= 0.0:
         return image.copy()
 

@@ -3,10 +3,12 @@ Debug visualization module for makeup pipeline.
 
 Provides visualization utilities for debugging each step of the makeup pipeline.
 """
+from __future__ import annotations
+
 import os
 import re
 import logging
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -103,7 +105,7 @@ class DebugVisualizer:
     def save_masks(
         self,
         image: np.ndarray,
-        masks: Dict[str, np.ndarray],
+        masks: dict[str, np.ndarray],
         session_id: str,
         mask_type: str
     ) -> None:
@@ -168,12 +170,12 @@ class DebugVisualizer:
         px: float, py: float,
         qx: float, qy: float,
         detected_x: int, detected_y: int,
-        samples: Optional[np.ndarray],
-        first_derivative: Optional[np.ndarray],
-        second_derivative: Optional[np.ndarray],
-        t_values: Optional[np.ndarray],
-        zero_crossings: Optional[np.ndarray],
-        best_idx: Optional[int],
+        samples: np.ndarray | None,
+        first_derivative: np.ndarray | None,
+        second_derivative: np.ndarray | None,
+        t_values: np.ndarray | None,
+        zero_crossings: np.ndarray | None,
+        best_idx: int | None,
         point_index: int,
         session_id: str
     ) -> None:

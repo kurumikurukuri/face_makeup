@@ -15,6 +15,7 @@ from face_makeup.constants import (
 from face_makeup.core.passes.eyeshadow import (
     EyeShadowBlendStrategy,
     EyeShadowMaskStrategy,
+    EyeShadowPass,
 )
 from face_makeup.core.types import (
     ColorParams,
@@ -219,3 +220,49 @@ class TestEyeShadowBlendStrategy:
         )
         result = strategy.apply(solid_gray, center_mask, params)
         assert np.array_equal(result[0:10, 0:10], solid_gray[0:10, 0:10])
+
+
+# ── EyeShadowPass ────────────────────────────────────────────────────────────
+
+
+class TestEyeShadowPass:
+    """Tests for EyeShadowPass construction and wiring."""
+
+    @pytest.fixture
+    def params(self):
+        return EyeShadowParams(
+            color_params=ColorParams(target_rgb=(80, 60, 200)),
+            opacity=0.8,
+            softness=0.3,
+            size=0.7,
+        )
+
+    def test_pass_type(self, params):
+        p = EyeShadowPass(params, "eyelid_left")
+        assert p.pass_type == "eyelid_left"
+
+    def test_priority(self, params):
+        p = EyeShadowPass(params, "eyelid_left")
+        assert p.priority == 25
+
+    def test_has_mask_strategy(self, params):
+        p = EyeShadowPass(params, "eyelid_left")
+        assert isinstance(p.mask_strategy, EyeShadowMaskStrategy)
+
+    def test_has_blend_strategy(self, params):
+        p = EyeShadowPass(params, "eyelid_left")
+        assert isinstance(p.blend_strategy, EyeShadowBlendStrategy)
+
+    def test_mask_strategy_wires_params(self, params):
+        """EyeShadowPass must thread size, softness, AND the per-part
+        feather/soften calibration into the strategy."""
+        p = EyeShadowPass(params, "eyelid_left")
+        assert p.mask_strategy._size == 0.7
+        assert p.mask_strategy._softness == 0.3
+        assert p.mask_strategy._feather_scale == EyeShadowParams._FEATHER_SCALE
+        assert p.mask_strategy._soften_floor == EyeShadowParams._SOFTEN_FLOOR
+
+    def test_unknown_part_name_raises_key_error(self, params):
+        """part_name must be a key in _INDICES_MAP."""
+        with pytest.raises(KeyError):
+            EyeShadowPass(params, "not_a_real_part")

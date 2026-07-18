@@ -145,13 +145,13 @@ class TestIOHandlerPathTraversal:
             # output_base directory.
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as abs_file:
                 abs_path = abs_file.name
-        try:
-            handler = IOHandler(output_base=output_base)
-            handler.save(test_rgb_image, abs_path)
-            assert os.path.isfile(abs_path)
-        finally:
-            if os.path.exists(abs_path):
-                os.unlink(abs_path)
+            try:
+                handler = IOHandler(output_base=output_base)
+                handler.save(test_rgb_image, abs_path)
+                assert os.path.isfile(abs_path)
+            finally:
+                if os.path.exists(abs_path):
+                    os.unlink(abs_path)
 
 
 class TestIOHandlerShow:
