@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev,app]"
+
+      - name: Lint with ruff
+        run: ruff check src tests
+
+      - name: Download hair segmentation model
+        run: |
+          mkdir -p models
+          curl -fsSL --retry 3 -o models/hair_segmenter.tflite \
+            https://storage.googleapis.com/mediapipe-assets/hair_segmentation.tflite
+
+      - name: Run tests
+        run: pytest --cov
