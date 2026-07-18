@@ -33,7 +33,7 @@ flowchart TD
     Processor["MakeupProcessor
     モデルのロード・顔検出・ランドマーク抽出のエントリポイント"]
 
-    Processor -->|open() / open_path()| Context
+    Processor -->|"open() / open_path()"| Context
 
     subgraph Context["ImageContext — 1画像の状態"]
         Faces["faces: list[Face]"]
@@ -46,7 +46,7 @@ flowchart TD
         end
     end
 
-    Context -->|render()| Pipeline["RenderingPipeline
+    Context -->|"render()"| Pipeline["RenderingPipeline
     キャッシュ管理 → Renderer"]
 ```
 
