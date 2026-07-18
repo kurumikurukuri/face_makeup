@@ -144,5 +144,9 @@ class IOHandler:
 
         cv2.imshow(window_name, image_bgr)
         cv2.waitKey(wait_key)
+        try:
+            cv2.destroyWindow(window_name)
+        except cv2.error:
+            logger.debug("destroyWindow failed for %s (window may already be closed)", window_name)
 
         logger.debug("Showing preview in window: %s", window_name)

@@ -175,8 +175,6 @@ class CheekMaskStrategy(MaskStrategy):
             )
 
         face3d_all_points = landmarks.points_3d
-        if face3d_all_points is None:
-            return np.zeros((img_height, img_width), dtype=np.float32)
 
         cheek_indices = L_INDICES if cheek_side == 'left' else R_INDICES
         cheek_face3d = face3d_all_points[cheek_indices]
@@ -406,6 +404,9 @@ class CheekMaskStrategy(MaskStrategy):
 
         bbox_h = bbox_y_max - bbox_y_min
         bbox_w = bbox_x_max - bbox_x_min
+
+        if bbox_h <= 0 or bbox_w <= 0:
+            return np.zeros((img_height, img_width), dtype=np.float32)
 
         # Rasterize polygon interior
         poly_mask = np.zeros((bbox_h, bbox_w), dtype=np.uint8)

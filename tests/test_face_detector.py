@@ -1,6 +1,8 @@
 """
 Tests for FaceDetector class.
 """
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
 
@@ -55,6 +57,55 @@ class TestFaceDetectorDetect:
             assert bbox.w > 0
             assert bbox.h > 0
             assert 0.0 <= bbox.score <= 1.0
+
+
+class TestFaceDetectorBboxClamping:
+    """Regression tests for boundary clamping of partial/edge-of-frame faces."""
+
+    @staticmethod
+    def _detect_with_fake_relative_bbox(xmin, ymin, width, height, image_shape):
+        """Bypasses real MediaPipe inference so the relative_bounding_box
+        values (including out-of-[0,1] ones MediaPipe can return for
+        partial faces) are fully controlled."""
+        detector = FaceDetector.__new__(FaceDetector)
+        detector._closed = False
+
+        fake_bbox = MagicMock(xmin=xmin, ymin=ymin, width=width, height=height)
+        fake_detection = MagicMock(score=[0.9])
+        fake_detection.location_data.relative_bounding_box = fake_bbox
+        fake_results = MagicMock(detections=[fake_detection])
+
+        detector.detector = MagicMock()
+        detector.detector.process.return_value = fake_results
+
+        image = np.zeros(image_shape, dtype=np.uint8)
+        return detector.detect(image)[0]
+
+    def test_negative_xmin_ymin_does_not_overstate_width_height(self):
+        """A face partially outside the top-left of the frame can report a
+        negative xmin/ymin. Width/height must be derived from the clamped
+        right/bottom edge, not the raw relative size, or the reported bbox
+        extends further into the frame than the actual detection."""
+        bbox = self._detect_with_fake_relative_bbox(
+            xmin=-0.1, ymin=-0.1, width=0.5, height=0.5,
+            image_shape=(1000, 1000, 3),
+        )
+        assert bbox.x == 0
+        assert bbox.y == 0
+        # True right/bottom edge: (xmin + width) * dim = 0.4 * 1000 = 400.
+        assert bbox.w == 400
+        assert bbox.h == 400
+
+    def test_bottom_right_overflow_still_clamped(self):
+        """A face partially outside the bottom-right is clamped to the frame."""
+        bbox = self._detect_with_fake_relative_bbox(
+            xmin=0.9, ymin=0.9, width=0.3, height=0.3,
+            image_shape=(1000, 1000, 3),
+        )
+        assert bbox.x == 900
+        assert bbox.y == 900
+        assert bbox.w == 100
+        assert bbox.h == 100
 
 
 class TestFaceDetectorCleanup:

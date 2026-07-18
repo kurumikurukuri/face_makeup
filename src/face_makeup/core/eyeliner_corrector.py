@@ -343,7 +343,10 @@ class EyelinerCorrector:
 
         # 'gray' is intentionally NOT stored in the cache entry: storing the full
         # preprocessed frame would pin it in memory for the corrector's lifetime.
-        self._evict_if_needed()
+        if cache_key in self._correction_cache:
+            self._cache_order.remove(cache_key)
+        else:
+            self._evict_if_needed()
         self._correction_cache[cache_key] = {
             'img_ref': weakref.ref(eyeliner), 'entries': cache_entries
         }

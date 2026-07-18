@@ -50,11 +50,18 @@ class FaceDetector:
         for detection in results.detections:
             bbox = detection.location_data.relative_bounding_box
 
-            # Convert relative coordinates to absolute
-            x = int(bbox.xmin * w)
-            y = int(bbox.ymin * h)
-            width = int(bbox.width * w)
-            height = int(bbox.height * h)
+            # Convert relative coordinates to absolute and clamp to image bounds.
+            # MediaPipe relative_bounding_box may exceed [0,1] on partial faces.
+            # Clamp both edges first, then derive width/height from the clamped
+            # edges — deriving width from the raw (unclamped) size would overstate
+            # it whenever xmin/ymin was negative and got clamped up to 0.
+            x0 = max(0, int(bbox.xmin * w))
+            y0 = max(0, int(bbox.ymin * h))
+            x1 = min(w, int((bbox.xmin + bbox.width) * w))
+            y1 = min(h, int((bbox.ymin + bbox.height) * h))
+
+            x, y = x0, y0
+            width, height = x1 - x0, y1 - y0
 
             bboxes.append(FaceBBox(
                 x=x,

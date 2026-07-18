@@ -62,7 +62,6 @@ def _on_separate_colors_change():
         st.session_state.eyeiris_color = st.session_state.eyeiris_color_left
 
 
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 # Reject uploads whose longer edge exceeds this — friendlier than letting the
 # decompression-bomb guard fire mid-pipeline, and bounds processing memory.
 MAX_IMAGE_DIMENSION = 4096

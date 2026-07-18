@@ -317,7 +317,7 @@ class Face:
             side: 'left', 'right', or 'both'.
             zone: Horizontal region of the eyelid to paint.
                 'full' (default) = whole width (backward compatible),
-                'outer' = 目尻側, 'center' = 中心部, 'inner' = 目頭側.
+                'outer' = outer corner, 'center' = center, 'inner' = inner corner.
             color: RGB color tuple, e.g. (180, 130, 150).
             opacity: Makeup strength 0.0-1.0.
             softness: Feather width as a face-size ratio (0.0-1.0).
