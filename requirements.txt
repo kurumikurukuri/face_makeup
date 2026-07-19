@@ -1,7 +1,7 @@
 # Core dependencies
 opencv-python-headless>=4.7.0
-numpy>=1.25.0
-mediapipe>=0.10.21,<0.11
+numpy>=1.25.0,<2.0
+mediapipe==0.10.21
 Pillow>=10.0.0
 
 # App dependencies (streamlit UI)
