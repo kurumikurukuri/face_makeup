@@ -5,5 +5,7 @@ mediapipe==0.10.21
 Pillow>=10.0.0
 
 # App dependencies (streamlit UI)
-streamlit>=1.24.0
+streamlit==1.58.0
+# starlette 1.8 breaks Streamlit's media endpoint (st.image renders blank)
+starlette<1.8
 pillow-heif>=0.13.0
