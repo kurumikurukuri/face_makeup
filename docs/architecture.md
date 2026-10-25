@@ -104,6 +104,10 @@ ctx.faces[0] \
 
 `Renderer.render_face()` は「マスク生成 → 合成」を2フェーズに分離します。これは、フェザー（エッジぼかし）計算をマスクの完全なジオメトリに対して行い、除外による「穴」が距離計算を歪めないようにするためです。
 
+### Phase 0 — まつ毛ラインの補正
+
+Phase 1 の前に、顔ごとに1回だけまつ毛ラインのランドマーク（1401〜1707）をまつ毛ライン上へ補正します（`LashLineCorrector`。詳細は後述の「まつ毛ラインの補正」を参照）。補正後の座標は、以降のすべてのパスの `generate()` と clip / exclusion に渡します。補正は、`uses_lash_line` が `True` の `MaskStrategy` か、clip / exclusion にまつ毛ラインのランドマークを含むパスがあるときだけ行います。
+
 ### Phase 1 — マスク生成とゲーティング
 
 各 `MakeupPass` について:
@@ -125,11 +129,11 @@ ctx.faces[0] \
 
 ## 6. Strategy 層 — `MaskStrategy` / `BlendStrategy` / `MakeupPass`
 
-`core/pipeline.py` が定義する3つの抽象です。
+`core/pipeline.py` が定義する抽象です。
 
 | 抽象 | 役割 | 契約 |
 |---|---|---|
-| `MaskStrategy` | 形状定義。ランドマーク座標からソフトマスクを生成 | `generate()` はフェザー込みの最終マスク（float32, 0..1）を返す |
+| `MaskStrategy` | 形状定義。ランドマーク座標からソフトマスクを生成 | `generate()` はフェザー込みの最終マスク（float32, 0..1）を返す。まつ毛ラインのランドマークを使う場合はクラス属性 `uses_lash_line = True` を宣言する |
 | `BlendStrategy` | 色の合成。マスクと `PartParams` から画像に色を乗せる | `apply()` は新しい (H, W, 3) uint8 配列を返す（入力を変更しない） |
 | `MakeupPass` | 上記2つ＋パラメータ＋優先度＋clip/exclusion 宣言をまとめた実行単位 | `pass_type`, `priority`, `params`, `mask_strategy`, `blend_strategy`, `exclusion_landmarks`, `clip_landmarks` |
 
@@ -142,11 +146,27 @@ ctx.faces[0] \
 | `lips.py` | `LipsPass` | 唇輪郭ポリゴン | HSV マット |
 | `cheek.py` | `CheekPass` | 楕円（接平面射影＋二次曲面フィット） | HSV マット |
 | `eyeshadow.py` | `EyeShadowPass` | まぶた帯状ポリゴン | HSV マット |
-| `eyeliner.py` | `EyelinerPass` | まつ毛ライン + 補正ポリライン | HSV マット |
+| `eyeliner.py` | `EyelinerPass` | 補正後のまつ毛ラインに沿ったポリライン | HSV マット |
 | `eyeiris.py` | `EyeIrisPass` | 虹彩円形マスク | 色相シフト / HSV 置換 |
 | `tearbag.py` | `TearBagHighlightPass` | 涙袋ポリゴン | スクリーン |
 | `tearbag.py` | `TearBagShadowPass` | 涙袋下部ポリライン | HSV マット |
 | `foundation.py` | `FoundationPass` | 顔楕円マスク（目・唇除外） | 線形（lerp） |
+
+### まつ毛ラインの補正
+
+MediaPipe の目の輪郭は、見た目のまつ毛ラインより少し内側にあります。`core/landmark_correction.py` の `LashLineCorrector` は、renderer の Phase 0 でまつ毛ラインのランドマーク（1401〜1407・1501〜1507・1601〜1607・1701〜1707。コード上の名称は edge）を実際のまつ毛ライン上へ移します。補正後の座標は全パスで共有するので、アイライナー、アイシャドウ（`EYELID_*_INDICES`）、涙袋（`TEAR_BAG_ROOT_*`）、およびファンデーションの目元の除外範囲が同じまつ毛ラインを使います。これらの定数では、まつ毛ライン部分の点に MediaPipe の点ではなくまつ毛ラインのランドマークの ID を使います。上下のラインで重複する1507/1707は、どちらのモードでも下まぶたの点として1回だけ補正します（`core/lash_line_edges.py`）。
+
+モードは `ProcessorConfig.landmark_correction` で選択します（`'ml'` / `'rule'`、デフォルト `'ml'`）。補正処理のインスタンスは初回の補正時に生成し、`RenderingPipeline` が全レンダリングで共有します。
+
+- `'ml'` — 機械学習補正。まつ毛ライン補正モデルがインストールされていない、読み込めない、または入出力契約に合わないときは、最初の補正時に例外を送出する。ルールベース補正へのフォールバックはしない。描画時にモデルをダウンロードすることはない。
+- `'rule'` — ルールベース補正。モデルを読み込まない。
+
+`debug=True` のときは、どちらの補正処理も描画時の `correct_points` の結果をキャッシュから返すので、検出や推論をやり直しません。ルールベース補正は点ごとに輝度・微分のグラフを、機械学習補正は目ごとに P/Q/R を重ねた拡大画像（`core/eyeliner_ml_debug.py`）を保存します。
+
+- `EyelinerCorrector`（`core/eyeliner_corrector.py`）— ルールベース補正。P→Q 方向の画素輝度をサンプリングし、2階微分ゼロ交差（暗→明遷移）をアイライナー縁として検出。
+- `EyelinerMLCorrector`（`core/eyeliner_ml_corrector.py`）— [EyeContourRefiner](https://github.com/kurumikurukuri/EyeContourRefiner) のまつ毛ライン補正モデル（dual-branch ONNX、CPU、onnxruntime）で、まつ毛ラインの各ランドマークについて、補正点を `R = t*P + (1-t)*Q` で表したときの `t` を予測。P は目の開口部輪郭上のランドマーク、Q はそこから目の外側へ離れたランドマーク。
+  - `core/eyeliner_patch.py` — 学習時と数値的に同一のパッチ切り出し（上流 `patch_utils.py` の移植。変更すると、エラーにならないまま予測精度が落ちる）。
+  - `core/eyeliner_model.py` — まつ毛ライン補正モデルの取得・読み込みと入出力契約の検証。モデルは本リポジトリに同梱せず、`pip install` 時（`setup.py` の `build_py` フック）と `git pull` 後（`.githooks/`）に EyeContourRefiner `main` の最新版を取得する。標準ライブラリだけで import できるので、パッケージの外（ビルド時・フック）からも直接実行できる。
 
 ## 8. Blend 層 — `core/blend/`
 
