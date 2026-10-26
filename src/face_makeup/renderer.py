@@ -17,7 +17,7 @@ from uuid import uuid4
 import cv2
 import numpy as np
 
-from face_makeup.constants import EYELINER_CORRECTION_MAP
+from face_makeup.constants import EDGE_LANDMARK_DIRECTIONS, EYELINER_CORRECTION_MAP
 from face_makeup.core.passes.cheek import CheekBlendStrategy
 from face_makeup.core.eyeliner_ml_corrector import EyelinerMLCorrector
 from face_makeup.core.pipeline import MakeupPass
@@ -109,8 +109,11 @@ def _build_landmark_group_mask(
 
 
 def _uses_lash_line(pass_: MakeupPass) -> bool:
-    """Whether *pass_* draws with the lash-line edge landmarks."""
-    return getattr(pass_.mask_strategy, "uses_lash_line", False)
+    """Whether *pass_* draws or gates with the lash-line edge landmarks."""
+    if getattr(pass_.mask_strategy, "uses_lash_line", False):
+        return True
+    groups = [*pass_.clip_landmarks, *pass_.exclusion_landmarks]
+    return any(idx in EDGE_LANDMARK_DIRECTIONS for group in groups for idx in group)
 
 
 class Renderer:
@@ -238,7 +241,8 @@ class Renderer:
         face_session = f"{session_id}_face{face.face_id}"
 
         # Lash-line edge landmarks are corrected once here, so every pass
-        # shares one lash line.
+        # (eyeliner, eyeshadow, tear bag, foundation's eye exclusion) shares
+        # one lash line.
         coords, correction = self._face_coords(image, face)
         if correction is not None and debug and self._visualizer:
             self._save_lash_line_debug(image, face, correction, face_session)

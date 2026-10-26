@@ -115,6 +115,8 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
     size=0) to the fixed lash inner edge.
     """
 
+    uses_lash_line = True
+
     def __init__(
         self,
         ridge_indices: list[int],
@@ -164,6 +166,8 @@ class TearBagHighlightMaskStrategy(MaskStrategy):
 
 class TearBagShadowMaskStrategy(MaskStrategy):
     """Open-polyline mask tracing the lerped outer edge."""
+
+    uses_lash_line = True
 
     def __init__(
         self,

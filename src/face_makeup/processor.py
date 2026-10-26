@@ -176,7 +176,8 @@ class ProcessorConfig:
             :func:`_resolve_model_dir` priority chain (env var, source
             checkout, platform cache).
         landmark_correction: Lash-line correction of the eye edge landmarks,
-            applied once per face and shared by every pass.
+            applied once per face and shared by eyeliner, eyeshadow, tear bag
+            and the foundation's eye exclusion.
             ``'ml'`` (default) uses the EyeContourRefiner ONNX model
             (fetched from EyeContourRefiner main when face_makeup is
             installed, never while rendering) and raises when the installed

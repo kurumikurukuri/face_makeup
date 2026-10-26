@@ -380,7 +380,7 @@ class TestLashLineCorrection:
         np.testing.assert_allclose(coords[edge_ids], raw[edge_ids] + (0.0, -3.0))
 
     def test_every_pass_shares_the_corrected_coords(self):
-        """Every pass sees the same corrected geometry as eyeliner."""
+        """Eyeshadow, foundation, etc. see the same corrected geometry as eyeliner."""
         lash = _CoordsSpyStrategy(uses_lash_line=True)
         other = _CoordsSpyStrategy()
         corrector = _SpyLashCorrector()
@@ -391,6 +391,31 @@ class TestLashLineCorrection:
 
         assert corrector.calls == 1
         assert lash.received[0] is other.received[0]
+
+    def test_exclusion_groups_use_corrected_coords(self, monkeypatch):
+        """A pass excluding lash-line regions (foundation) triggers the correction."""
+        import face_makeup.renderer as renderer_module
+
+        seen = []
+        real = renderer_module._build_landmark_group_mask
+
+        def spy(coords, groups, image_shape, **kwargs):
+            if groups:
+                seen.append(coords)
+            return real(coords, groups, image_shape, **kwargs)
+
+        monkeypatch.setattr(renderer_module, "_build_landmark_group_mask", spy)
+        corrector = _SpyLashCorrector()
+        strategy = _CoordsSpyStrategy()
+        face = _extended_face([
+            _pass_with(strategy, exclusion_landmarks=[[1401, 1402, 1403, 1404]]),
+        ])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+
+        Renderer(lash_corrector=corrector).render_face(image, face)
+
+        assert corrector.calls == 1
+        assert seen and seen[0] is strategy.received[0]
 
     def test_no_correction_without_lash_line_passes(self):
         """A lips-only face never runs the correction model."""
@@ -420,8 +445,19 @@ class TestLashLineCorrection:
 
     def test_real_passes_declare_lash_line_use(self):
         from face_makeup.core.passes.eyeliner import EyelinerMaskStrategy
+        from face_makeup.core.passes.eyeshadow import EyeShadowMaskStrategy
+        from face_makeup.core.passes.tearbag import (
+            TearBagHighlightMaskStrategy,
+            TearBagShadowMaskStrategy,
+        )
 
-        assert EyelinerMaskStrategy.uses_lash_line is True
+        for cls in (
+            EyelinerMaskStrategy,
+            EyeShadowMaskStrategy,
+            TearBagHighlightMaskStrategy,
+            TearBagShadowMaskStrategy,
+        ):
+            assert cls.uses_lash_line is True, cls.__name__
         assert MaskStrategy.uses_lash_line is False
 
 

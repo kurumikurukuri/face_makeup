@@ -4,8 +4,9 @@ Face-wide lash-line landmark correction.
 The eye-opening contour MediaPipe reports sits slightly inside the visible
 lash line. :class:`LashLineCorrector` moves every edge landmark (1401-1407,
 1501-1507, 1601-1607, 1701-1707) onto the detected lash line once per face,
-and the renderer hands the corrected coordinates to every pass, so they all
-share one lash line. The mode comes from ``ProcessorConfig.landmark_correction``:
+and the renderer hands the corrected coordinates to every pass, so eyeliner,
+eyeshadow, tear bag and the foundation's eye exclusion all share one lash
+line. The mode comes from ``ProcessorConfig.landmark_correction``:
 
 * ``'ml'`` (default) — the EyeContourRefiner ONNX model. A model that cannot
   be loaded (missing, or not matching the contract) raises; there is no fallback.
