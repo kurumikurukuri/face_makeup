@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 
 from ..constants import EDGE_LANDMARK_DIRECTIONS, EYELINER_CORRECTION_MAP
+from .lash_line_edges import unique_edges
 from .types import FaceLandmarks
 
 # Tuning constants for edge detection
@@ -287,6 +288,32 @@ class EyelinerCorrector:
     # Batch correction
     # ------------------------------------------------------------------
 
+    def _detect_edges(
+        self, gray: np.ndarray, coords: np.ndarray, part_name: str
+    ) -> dict[int, dict]:
+        """Run edge detection once per distinct edge of *part_name*.
+
+        Returns:
+            ``{edge_id: entry}`` in slot order; each entry holds px, py, qx,
+            qy, detected_x, detected_y and, when detection ran, the
+            derivative debug info.
+        """
+        entries: dict[int, dict] = {}
+        for idx, _is_upper in unique_edges(part_name):
+            p_idx, q_idx = EDGE_LANDMARK_DIRECTIONS[idx]
+            px, py = coords[p_idx]
+            qx, qy = coords[q_idx]
+            result, dbg = self.find_edge(gray, px, py, qx, qy, return_debug_info=True)
+            entry: dict = {
+                'px': float(px), 'py': float(py),
+                'qx': float(qx), 'qy': float(qy),
+                'detected_x': result[0], 'detected_y': result[1],
+            }
+            if dbg is not None:
+                entry.update(dbg)
+            entries[idx] = entry
+        return entries
+
     def correct_points(
         self,
         coords: np.ndarray,
@@ -296,10 +323,12 @@ class EyelinerCorrector:
         """
         Apply edge-based correction to eyeliner landmark points.
 
-        For each edge landmark in the correction map, finds the true eyeliner
-        edge using 2nd-derivative zero-crossing detection along the
-        landmark->delta direction (from EDGE_LANDMARK_DIRECTIONS). Plain int
-        landmarks pass through without correction.
+        For each distinct edge landmark in the correction map, finds the true
+        eyeliner edge using 2nd-derivative zero-crossing detection along the
+        landmark->delta direction (from EDGE_LANDMARK_DIRECTIONS). The edge
+        shared by both polylines (1507/1707) is detected once and both
+        polylines use that point. Plain int landmarks pass through without
+        correction.
 
         Args:
             coords: All landmark pixel coordinates (N, 2).
@@ -318,24 +347,14 @@ class EyelinerCorrector:
         correction_map = EYELINER_CORRECTION_MAP[part_name]
         gray = self.preprocess(eyeliner)
 
-        all_corrected = []
-        cache_entries: list[dict] = []
+        edges = self._detect_edges(gray, coords, part_name)
+        cache_entries = list(edges.values())
         cache_key = (part_name, id(eyeliner), eyeliner.ctypes.data)
-        for _key, indices in correction_map.items():
+        all_corrected = []
+        for indices in correction_map.values():
             for idx in indices:
-                if idx in EDGE_LANDMARK_DIRECTIONS:
-                    p_idx, q_idx = EDGE_LANDMARK_DIRECTIONS[idx]
-                    px, py = coords[p_idx]
-                    qx, qy = coords[q_idx]
-                    result, dbg = self.find_edge(gray, px, py, qx, qy, return_debug_info=True)
-                    entry: dict = {
-                        'px': float(px), 'py': float(py),
-                        'qx': float(qx), 'qy': float(qy),
-                        'detected_x': result[0], 'detected_y': result[1],
-                    }
-                    if dbg is not None:
-                        entry.update(dbg)
-                    cache_entries.append(entry)
+                if idx in edges:
+                    result = (edges[idx]['detected_x'], edges[idx]['detected_y'])
                 else:
                     # Plain int landmark — pass through without edge correction.
                     result = (int(coords[idx][0]), int(coords[idx][1]))
@@ -374,7 +393,8 @@ class EyelinerCorrector:
             eyeliner: Image to use for edge detection (defaults to image).
 
         Returns:
-            List of debug info dicts, one per corrected edge point. Each dict
+            List of debug info dicts, one per distinct edge point (the edge
+            shared by both polylines appears once). Each dict
             contains px, py, qx, qy, detected_x, detected_y, side, and the
             source image. When edge detection ran, also includes samples,
             first_derivative, second_derivative, t_values, zero_crossings,
@@ -400,29 +420,5 @@ class EyelinerCorrector:
         # Fallback: re-run edge detection with debug info (e.g. when called
         # outside the normal correct_points path).
         coords = landmarks.to_image_coords(w, h)
-        correction_map = EYELINER_CORRECTION_MAP[part_name]
-        gray = self.preprocess(eyeliner)
-        debug_entries: list[dict] = []
-        for _key, indices in correction_map.items():
-            for idx in indices:
-                if idx in EDGE_LANDMARK_DIRECTIONS:
-                    p_idx, q_idx = EDGE_LANDMARK_DIRECTIONS[idx]
-                    px, py = coords[p_idx]
-                    qx, qy = coords[q_idx]
-                    result, dbg = self.find_edge(
-                        gray, px, py, qx, qy, return_debug_info=True
-                    )
-                    detected_x, detected_y = result
-                    entry: dict = {
-                        'px': float(px), 'py': float(py),
-                        'qx': float(qx), 'qy': float(qy),
-                        'detected_x': detected_x, 'detected_y': detected_y,
-                        'eyeliner': eyeliner,
-                        'side': side,
-                    }
-                    if dbg is not None:
-                        entry.update(dbg)
-                    debug_entries.append(entry)
-                # else: plain int — no edge detection, no debug entry.
-
-        return debug_entries
+        edges = self._detect_edges(self.preprocess(eyeliner), coords, part_name)
+        return [dict(entry, side=side, eyeliner=eyeliner) for entry in edges.values()]

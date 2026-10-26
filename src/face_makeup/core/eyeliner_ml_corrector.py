@@ -34,6 +34,7 @@ from .eyeliner_patch import (
     reconstruct_point,
     rescale_pq_by_eye_scale,
 )
+from .lash_line_edges import unique_edges
 from .types import FaceLandmarks
 
 if TYPE_CHECKING:
@@ -70,22 +71,6 @@ def _pq(coords: np.ndarray, edge_id: int) -> tuple[tuple[float, float], tuple[fl
         (float(coords[p_idx][0]), float(coords[p_idx][1])),
         (float(coords[q_idx][0]), float(coords[q_idx][1])),
     )
-
-
-def _unique_edges(part_name: str) -> list[tuple[int, float]]:
-    """Return each edge landmark of a part once, with its ``is_upper`` flag.
-
-    An edge on the lower polyline is a lower-lid edge. The edge shared by both
-    polylines (1507/1707 also start the upper one) is therefore inferred once
-    as a lower-lid edge, so both polylines share the same point.
-    """
-    lower = set(EYELINER_CORRECTION_MAP[part_name]["lower"])
-    edges: dict[int, float] = {}
-    for indices in EYELINER_CORRECTION_MAP[part_name].values():
-        for idx in indices:
-            if idx in EDGE_LANDMARK_DIRECTIONS and idx not in edges:
-                edges[idx] = 0.0 if idx in lower else 1.0
-    return list(edges.items())
 
 
 def _sanitize_t(raw_t: np.ndarray) -> np.ndarray:
@@ -155,8 +140,9 @@ class EyelinerMLCorrector:
         cached for :meth:`get_debug_entries`.
 
         The model sees *model_coords* (unrounded float, like its training
-        data) while R is reconstructed on *coords*, so the corrected line
-        stays in the int geometry every other pass draws with.
+        data) while R is reconstructed on the P/Q of *coords* (the integer
+        pixel coordinates every pass draws with). R itself keeps its sub-pixel
+        float value.
 
         Args:
             coords: All landmark pixel coordinates (N, 2), as passed to every
@@ -188,7 +174,7 @@ class EyelinerMLCorrector:
             else np.asarray(model_coords, dtype=np.float32)
         )
 
-        edges = _unique_edges(part_name)
+        edges = unique_edges(part_name)
         t_by_edge: dict[int, float] = {}
         if edges:
             eye_scale = compute_eye_scale(
@@ -213,7 +199,7 @@ class EyelinerMLCorrector:
     def _infer_t(
         self,
         coords: np.ndarray,
-        edges: list[tuple[int, float]],
+        edges: list[tuple[int, bool]],
         eye_scale: float,
         eyeliner: np.ndarray,
     ) -> dict[int, float]:
