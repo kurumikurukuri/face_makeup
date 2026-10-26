@@ -1,0 +1,4 @@
+#!/bin/sh
+# git pull --rebase passes "rebase"; skip amend etc.
+[ "$1" = "rebase" ] || exit 0
+exec "$(dirname "$0")/refresh-lash-model"

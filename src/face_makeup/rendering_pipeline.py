@@ -17,6 +17,7 @@ from face_makeup.renderer import Renderer
 
 if TYPE_CHECKING:
     from face_makeup.context import ImageContext
+    from face_makeup.core.landmark_correction import LashLineCorrector
     from face_makeup.face import Face
 
 logger = logging.getLogger(__name__)
@@ -35,14 +36,22 @@ class RenderingPipeline:
         >>> result = ctx.render()  # Uses cached result if available
     """
 
-    def __init__(self, hair_segmenter: object = None):
+    def __init__(
+        self,
+        hair_segmenter: object = None,
+        lash_corrector: LashLineCorrector | None = None,
+    ):
         """
         Initialize rendering pipeline.
 
         Args:
             hair_segmenter: Optional HairSegmenter for hair mask subtraction.
+            lash_corrector: Face-wide lash-line corrector shared by every
+                render (``ProcessorConfig.landmark_correction``); ``None``
+                draws the uncorrected landmarks.
         """
         self._hair_segmenter = hair_segmenter
+        self._lash_corrector = lash_corrector
         # Cache keyed by ImageContext object (auto-cleanup via weak references)
         self._cache: WeakKeyDictionary[ImageContext, np.ndarray] = WeakKeyDictionary()
         self._closed = False
@@ -95,6 +104,7 @@ class RenderingPipeline:
         renderer = Renderer(
             visualizer=visualizer,
             hair_segmenter=self._hair_segmenter,
+            lash_corrector=self._lash_corrector,
         )
 
         result = renderer.compose(

@@ -50,7 +50,8 @@ class CheekMaskStrategy(MaskStrategy):
         if len(points) < 3:
             return soften_mask(base, feather_px, soften_floor=self._params._SOFTEN_FLOOR)
 
-        hull = cv2.convexHull(points)
+        # fillConvexPoly needs int32; corrected renders pass float32 coords.
+        hull = cv2.convexHull(points.astype(np.int32))
         cv2.fillConvexPoly(base, hull, 255)
 
         ellipse = self.create_cheek_mask(

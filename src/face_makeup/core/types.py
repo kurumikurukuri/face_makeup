@@ -26,8 +26,11 @@ class FaceLandmarks:
 
     def to_image_coords(self, img_width: int, img_height: int) -> np.ndarray:
         """Convert to image coordinate system"""
-        coords = self.points * np.array([img_width, img_height], dtype=np.float32)
-        return np.round(coords).astype(np.int32)
+        return np.round(self.to_image_coords_float(img_width, img_height)).astype(np.int32)
+
+    def to_image_coords_float(self, img_width: int, img_height: int) -> np.ndarray:
+        """Convert to unrounded float32 image coordinates (sub-pixel precision)."""
+        return self.points * np.array([img_width, img_height], dtype=np.float32)
 
 
 @dataclass
@@ -152,7 +155,8 @@ class EyeShadowParams(PartParams):
 @dataclass
 class EyeLinerParams(PartParams):
     """Parameters for eyeliner
-    Specifies the thickness.
+    Specifies the thickness. The lash-line correction is face-wide
+    (``ProcessorConfig.landmark_correction``).
     """
     # Per-part feather calibration (same as PartParams defaults — the thin
     # liner stroke keeps the standard feather width and soften floor).

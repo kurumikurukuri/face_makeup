@@ -1,0 +1,2 @@
+# Git hooks run under sh on every OS; CRLF breaks the shebang.
+.githooks/* text eol=lf

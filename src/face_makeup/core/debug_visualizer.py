@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 
+from .eyeliner_ml_debug import save_eyeliner_ml_overlay
+
 try:
     import matplotlib
     matplotlib.use("Agg")
@@ -318,6 +320,15 @@ class DebugVisualizer:
             f"[EyelinerDebug] saved: {path} | "
             f"samples={None if samples is None else len(samples)} "
             f"best_idx={best_idx}"
+        )
+
+    def save_eyeliner_ml_debug(
+        self, image: np.ndarray, side: str, entries: list[dict], session_id: str
+    ) -> None:
+        """Save the ML eyeliner P/Q/R overlay of one eye (see :mod:`.eyeliner_ml_debug`)."""
+        session_dir = os.path.join(self.debug_dir, _sanitize_session_id(session_id))
+        save_eyeliner_ml_overlay(
+            os.path.join(session_dir, f"eyeliner_ml_debug_{side}.png"), image, entries
         )
 
     def save_cheek_3d_debug(

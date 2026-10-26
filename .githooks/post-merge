@@ -1,0 +1,3 @@
+#!/bin/sh
+# git pull (merge)
+exec "$(dirname "$0")/refresh-lash-model"

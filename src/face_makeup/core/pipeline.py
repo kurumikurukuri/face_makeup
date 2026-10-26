@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 
@@ -25,9 +25,14 @@ class MaskStrategy(ABC):
     exclusions to the softened mask before blending.
 
     Subclasses may override to accept optional context parameters
-    (image, landmarks) for advanced mask generation such as rule-based
-    edge correction or 3D projection.
+    (image, landmarks) for advanced mask generation such as 3D projection.
     """
+
+    # True when the geometry uses the lash-line edge landmarks (1401-1707).
+    # The renderer then corrects the lash line before generating the masks
+    # (``ProcessorConfig.landmark_correction``); faces without such a pass
+    # never run the correction model.
+    uses_lash_line: ClassVar[bool] = False
 
     @abstractmethod
     def generate(

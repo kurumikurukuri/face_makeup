@@ -4,8 +4,13 @@ Tests for Renderer class (two-phase pipeline).
 import pytest
 import numpy as np
 
+from face_makeup.constants import EDGE_LANDMARK_DIRECTIONS
 from face_makeup.face import Face
-from face_makeup.core.pipeline import MakeupPass, MaskStrategy, BlendStrategy
+from face_makeup.core.pipeline import (
+    BlendStrategy,
+    MakeupPass,
+    MaskStrategy,
+)
 from face_makeup.core.types import (
     FaceLandmarks,
     ColorParams,
@@ -293,3 +298,181 @@ class TestLandmarkExclusionAndClip:
         assert result[50, 50, 0] > 240
 
 
+# ── face-wide lash-line correction ──────────────────────────────────────────
+
+
+class _FixedTSession:
+    """ONNX session stand-in returning t=0.5 for every edge."""
+
+    def __init__(self):
+        self.runs = 0
+
+    def run(self, output_names, feed):
+        self.runs += 1
+        return [np.full((len(feed["px"]), 1), 0.5, dtype=np.float32)]
+
+
+class _CoordsSpyStrategy(MaskStrategy):
+    """Records the coords it is given; optionally declares a lash-line dependency."""
+
+    def __init__(self, uses_lash_line=False):
+        self.uses_lash_line = uses_lash_line
+        self.received = []
+
+    def generate(self, coords, image_shape, image=None, landmarks=None):
+        self.received.append(coords)
+        return _NoopMaskStrategy().generate(coords, image_shape)
+
+
+class _SpyLashCorrector:
+    """LashLineCorrector stand-in shifting every edge row by a fixed offset."""
+
+    def __init__(self):
+        self.calls = 0
+        self.corrector = None
+
+    def apply(self, image, landmarks, coords):
+        from face_makeup.core.landmark_correction import LashLineCorrection
+
+        self.calls += 1
+        corrected = np.asarray(coords, dtype=np.float32).copy()
+        corrected[list(EDGE_LANDMARK_DIRECTIONS)] += (0.0, -3.0)
+        return LashLineCorrection(coords=corrected, corrector=self.corrector)
+
+
+def _extended_face(passes):
+    from face_makeup.core.landmark_resolver import extend_landmarks
+
+    rng = np.random.RandomState(0)
+    points = (0.3 + 0.4 * rng.rand(478, 2)).astype(np.float32)
+    face = _make_face(makeup_passes=passes)
+    face._landmarks = extend_landmarks(FaceLandmarks(points=points))
+    return face
+
+
+def _pass_with(strategy, pass_type="test", **kwargs):
+    return MakeupPass(
+        pass_type=pass_type,
+        priority=0,
+        params=PartParams(
+            color_params=ColorParams(target_rgb=(0, 0, 0)), opacity=0.5
+        ),
+        mask_strategy=strategy,
+        blend_strategy=_IdentityBlendStrategy(),
+        **kwargs,
+    )
+
+
+class TestLashLineCorrection:
+    """The renderer corrects the lash line once per face and shares the result."""
+
+    def test_lash_line_passes_receive_corrected_coords(self):
+        strategy = _CoordsSpyStrategy(uses_lash_line=True)
+        corrector = _SpyLashCorrector()
+        face = _extended_face([_pass_with(strategy)])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+
+        Renderer(lash_corrector=corrector).render_face(image, face)
+
+        raw = face.landmarks.to_image_coords(100, 100)
+        (coords,) = strategy.received
+        edge_ids = list(EDGE_LANDMARK_DIRECTIONS)
+        np.testing.assert_allclose(coords[edge_ids], raw[edge_ids] + (0.0, -3.0))
+
+    def test_every_pass_shares_the_corrected_coords(self):
+        """Every pass sees the same corrected geometry as eyeliner."""
+        lash = _CoordsSpyStrategy(uses_lash_line=True)
+        other = _CoordsSpyStrategy()
+        corrector = _SpyLashCorrector()
+        face = _extended_face([_pass_with(lash), _pass_with(other)])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+
+        Renderer(lash_corrector=corrector).render_face(image, face)
+
+        assert corrector.calls == 1
+        assert lash.received[0] is other.received[0]
+
+    def test_no_correction_without_lash_line_passes(self):
+        """A lips-only face never runs the correction model."""
+        corrector = _SpyLashCorrector()
+        strategy = _CoordsSpyStrategy()
+        face = _extended_face([_pass_with(strategy)])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+
+        Renderer(lash_corrector=corrector).render_face(image, face)
+
+        assert corrector.calls == 0
+        np.testing.assert_array_equal(
+            strategy.received[0], face.landmarks.to_image_coords(100, 100)
+        )
+
+    def test_no_corrector_keeps_uncorrected_coords(self):
+        """Without a corrector the raw landmarks are drawn."""
+        strategy = _CoordsSpyStrategy(uses_lash_line=True)
+        face = _extended_face([_pass_with(strategy)])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+
+        Renderer().render_face(image, face)
+
+        np.testing.assert_array_equal(
+            strategy.received[0], face.landmarks.to_image_coords(100, 100)
+        )
+
+    def test_real_passes_declare_lash_line_use(self):
+        from face_makeup.core.passes.eyeliner import EyelinerMaskStrategy
+
+        assert EyelinerMaskStrategy.uses_lash_line is True
+        assert MaskStrategy.uses_lash_line is False
+
+
+class TestLashLineDebug:
+    """debug=True saves each eye's correction once, from the render's cache."""
+
+    def _render(self, mode, visualizer, session=None):
+        from face_makeup.core.landmark_correction import LashLineCorrector
+        from face_makeup.core.passes.eyeliner import EyelinerMaskStrategy
+
+        corrector = LashLineCorrector(mode)
+        if session is not None:
+            corrector.resolve()._session = session
+        face = _extended_face([
+            _pass_with(EyelinerMaskStrategy("eyeliner_left"), pass_type="eyeliner_left"),
+        ])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+        Renderer(visualizer=visualizer, lash_corrector=corrector).render_face(
+            image, face, debug=True, session_id="s1"
+        )
+
+    def test_ml_saves_one_overlay_per_eye_without_reinference(self):
+        from unittest.mock import MagicMock
+
+        session = _FixedTSession()
+        visualizer = MagicMock()
+        self._render("ml", visualizer, session)
+
+        assert session.runs == 2  # one batched inference per eye, none for debug
+        visualizer.save_eyeliner_correction_debug.assert_not_called()
+        sides = [c.kwargs["side"] for c in visualizer.save_eyeliner_ml_debug.call_args_list]
+        assert sides == ["left", "right"]
+        for call in visualizer.save_eyeliner_ml_debug.call_args_list:
+            assert call.kwargs["entries"]
+            assert all("t" in e for e in call.kwargs["entries"])
+
+    def test_rule_keeps_per_point_debug(self):
+        from unittest.mock import MagicMock
+
+        visualizer = MagicMock()
+        self._render("rule", visualizer)
+
+        visualizer.save_eyeliner_ml_debug.assert_not_called()
+
+    def test_no_debug_without_correction(self):
+        from unittest.mock import MagicMock
+
+        visualizer = MagicMock()
+        face = _extended_face([_pass_with(_CoordsSpyStrategy(uses_lash_line=True))])
+        image = np.full((100, 100, 3), 128, dtype=np.uint8)
+        Renderer(visualizer=visualizer).render_face(image, face, debug=True)
+
+        visualizer.save_eyeliner_ml_debug.assert_not_called()
+        visualizer.save_eyeliner_correction_debug.assert_not_called()

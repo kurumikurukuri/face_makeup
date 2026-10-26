@@ -1,8 +1,6 @@
-# Core dependencies
-opencv-python-headless>=4.7.0
-numpy>=1.25.0,<2.0
-mediapipe==0.10.21
-Pillow>=10.0.0
+# face_makeup itself: installs its core dependencies (pyproject.toml) and
+# fetches the lash-line correction model at install time (setup.py).
+.
 
 # App dependencies (streamlit UI)
 streamlit==1.58.0
