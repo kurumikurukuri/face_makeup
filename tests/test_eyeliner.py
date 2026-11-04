@@ -58,8 +58,7 @@ def _build_eyeliner_coords(indices_dict: dict) -> np.ndarray:
 class TestEyelinerMaskStrategy:
     """Tests for EyelinerMaskStrategy mask generation."""
 
-    def test_generate_simple_path_left(self):
-        """generate with image=None forces _generate_simple path (left eye)."""
+    def test_generate_left(self):
         coords = _build_eyeliner_coords(EYELINER_LEFT_INDICES)
         strategy = EyelinerMaskStrategy("eyeliner_left")
         mask = strategy.generate(coords, (128, 128), image=None)
@@ -67,22 +66,46 @@ class TestEyelinerMaskStrategy:
         # Mask strategy now returns the final soft mask (float32 0-1).
         assert 0.0 < mask.max() <= 1.0
 
-    def test_generate_simple_path_right(self):
-        """generate with image=None forces _generate_simple path (right eye)."""
+    def test_generate_right(self):
         coords = _build_eyeliner_coords(EYELINER_RIGHT_INDICES)
         strategy = EyelinerMaskStrategy("eyeliner_right")
         mask = strategy.generate(coords, (128, 128), image=None)
         assert mask.shape == (128, 128)
         assert 0.0 < mask.max() <= 1.0
 
-    def test_generate_corrected_path(self):
-        """generate with image forces _generate_corrected path."""
+    def test_image_does_not_change_mask(self):
+        """Correction happens before the pass (renderer); the mask only draws coords."""
         coords = _build_eyeliner_coords(EYELINER_LEFT_INDICES)
         img = np.full((128, 128, 3), 128, dtype=np.uint8)
         strategy = EyelinerMaskStrategy("eyeliner_left")
-        mask = strategy.generate(coords, img.shape[:2], image=img)
-        assert mask.shape == img.shape[:2]
-        assert 0.0 < mask.max() <= 1.0
+        np.testing.assert_array_equal(
+            strategy.generate(coords, img.shape[:2], image=img),
+            strategy.generate(coords, img.shape[:2], image=None),
+        )
+
+    def test_draws_given_edge_points(self):
+        """Moving an edge landmark row moves the drawn line with it."""
+        coords = _build_eyeliner_coords(EYELINER_LEFT_INDICES)
+        strategy = EyelinerMaskStrategy("eyeliner_left")
+        moved = coords.copy()
+        moved[EYELINER_LEFT_INDICES["upper"][3]] += (0.0, -20.0)
+        assert not np.array_equal(
+            strategy.generate(coords, (128, 128)),
+            strategy.generate(moved, (128, 128)),
+        )
+
+    def test_keeps_subpixel_positions(self):
+        """Float (corrected) coords are drawn with sub-pixel precision."""
+        coords = _build_eyeliner_coords(EYELINER_LEFT_INDICES)
+        strategy = EyelinerMaskStrategy("eyeliner_left")
+        shifted = coords + np.float32(0.25)
+        assert not np.array_equal(
+            strategy.generate(coords, (128, 128)),
+            strategy.generate(shifted, (128, 128)),
+        )
+
+    def test_uses_lash_line(self):
+        assert EyelinerMaskStrategy.uses_lash_line is True
 
     def test_thickness_dilates_mask(self):
         """Larger thickness dilates the eyeliner geometry → more covered pixels.

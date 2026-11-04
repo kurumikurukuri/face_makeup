@@ -123,6 +123,17 @@ class TestCheekMaskStrategyGenerate:
         assert mask.shape == (_IMAGE_SIZE, _IMAGE_SIZE)
         assert mask.max() > 0.0
 
+    def test_generate_accepts_float_coords(self, cheek_params):
+        """The renderer passes float32 coords once the lash line is corrected."""
+        indices = list(CHEEK_LEFT_INDICES)
+        int_coords = _build_cheek_coords(indices)
+        strategy = CheekMaskStrategy(indices, "left", cheek_params)
+        shape = (_IMAGE_SIZE, _IMAGE_SIZE)
+        np.testing.assert_array_equal(
+            strategy.generate(int_coords.astype(np.float32), shape, landmarks=None),
+            strategy.generate(int_coords, shape, landmarks=None),
+        )
+
     def test_generate_too_few_points_returns_soft_empty_mask(self, cheek_params):
         """Fewer than 3 hull points → early-return soft (all-zero-ish) mask,
         not a crash."""

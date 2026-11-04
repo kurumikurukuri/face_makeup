@@ -15,9 +15,9 @@ from face_makeup.custom_landmark import (
 from face_makeup.constants import (
     LM_1001, LM_1002, LM_1003,
     LM_1101, LM_1102, LM_1103, LM_1104, LM_1105,
-    LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408,
+    LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407,
     LM_1501, LM_1502, LM_1503, LM_1504, LM_1505, LM_1506, LM_1507,
-    LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608,
+    LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607,
     LM_1701, LM_1702, LM_1703, LM_1704, LM_1705, LM_1706, LM_1707,
     EDGE_LANDMARK_DIRECTIONS as EDGE_LANDMARK_DIRECTIONS_FROM_CONSTANTS,
 )
@@ -48,15 +48,15 @@ class TestCustomLandmarkDefs:
     ALL_LM = [
         LM_1001, LM_1002, LM_1003,
         LM_1101, LM_1102, LM_1103, LM_1104, LM_1105,
-        LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408,
+        LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407,
         LM_1501, LM_1502, LM_1503, LM_1504, LM_1505, LM_1506, LM_1507,
-        LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608,
+        LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607,
         LM_1701, LM_1702, LM_1703, LM_1704, LM_1705, LM_1706, LM_1707,
     ]
 
     def test_defs_count(self):
-        """CUSTOM_LANDMARK_DEFS should have 38 entries."""
-        assert len(CUSTOM_LANDMARK_DEFS) == 38
+        """CUSTOM_LANDMARK_DEFS should have 36 entries."""
+        assert len(CUSTOM_LANDMARK_DEFS) == 36
 
     def test_all_ids_unique(self):
         """All logical_ids should be unique."""
@@ -64,11 +64,11 @@ class TestCustomLandmarkDefs:
         assert len(ids) == len(set(ids))
 
     def test_kinds(self):
-        """8 mid + 30 edge = 38."""
+        """8 mid + 28 edge = 36."""
         mid_count = sum(1 for d in CUSTOM_LANDMARK_DEFS if d.kind == "mid")
         edge_count = sum(1 for d in CUSTOM_LANDMARK_DEFS if d.kind == "edge")
         assert mid_count == 8
-        assert edge_count == 30
+        assert edge_count == 28
 
     def test_all_ids_in_range(self):
         """All IDs should be >= 1001 and <= MAX_LANDMARK_ID."""
@@ -115,8 +115,8 @@ class TestEdgeLandmarkDirections:
     """EDGE_LANDMARK_DIRECTIONS dict."""
 
     def test_count(self):
-        """Should have 30 entries (one per edge landmark)."""
-        assert len(EDGE_LANDMARK_DIRECTIONS) == 30
+        """Should have 28 entries (one per edge landmark)."""
+        assert len(EDGE_LANDMARK_DIRECTIONS) == 28
 
     def test_keys_are_logical_ids(self):
         for key in EDGE_LANDMARK_DIRECTIONS:

@@ -235,3 +235,28 @@ class TestRenderingPipelineSharedPipeline:
         assert pipeline.has_cached_result(ctx1)
         assert pipeline.has_cached_result(ctx2)
         assert pipeline.cache_size == 2
+
+
+class TestRenderingPipelineLashCorrector:
+    """RenderingPipeline hands one lash-line corrector to every Renderer it creates."""
+
+    @pytest.mark.parametrize("use_corrector", [False, True])
+    def test_renderer_receives_lash_corrector(self, monkeypatch, test_face, use_corrector):
+        import face_makeup.rendering_pipeline as rp
+        from face_makeup.core.landmark_correction import LashLineCorrector
+
+        created = []
+        real_renderer = rp.Renderer
+
+        def spy_renderer(**kwargs):
+            created.append(kwargs)
+            return real_renderer(**kwargs)
+
+        monkeypatch.setattr(rp, "Renderer", spy_renderer)
+        corrector = LashLineCorrector("rule") if use_corrector else None
+        pipeline = RenderingPipeline(lash_corrector=corrector)
+        image = np.full((64, 64, 3), 128, dtype=np.uint8)
+        pipeline.render(SimpleContext(), image, [test_face])
+        pipeline.render(SimpleContext(), image, [test_face])
+
+        assert [kw["lash_corrector"] for kw in created] == [corrector, corrector]

@@ -341,3 +341,33 @@ class TestMakeupProcessorResourceCleanup:
         processor.close()
         with pytest.raises(RuntimeError, match="closed"):
             processor.open_path(test_image_path)
+
+
+class TestProcessorLandmarkCorrection:
+    """ProcessorConfig.landmark_correction builds the face-wide lash-line corrector."""
+
+    def test_default_is_ml(self):
+        assert ProcessorConfig().landmark_correction == "ml"
+
+    @pytest.mark.parametrize("mode", ["ml", "rule"])
+    def test_accepts_modes(self, mode):
+        assert ProcessorConfig(landmark_correction=mode).landmark_correction == mode
+
+    @pytest.mark.parametrize("mode", ["auto", "off", "magic"])
+    def test_rejects_unknown_mode(self, mode):
+        with pytest.raises(ValueError, match="landmark_correction must be 'ml' or 'rule'"):
+            ProcessorConfig(landmark_correction=mode)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("mode", ["ml", "rule"])
+    def test_corrector_reaches_rendering_pipeline(self, tmp_path, monkeypatch, mode):
+        import face_makeup.processor as processor_module
+
+        # Keep the hair model out of the network path for this test.
+        monkeypatch.setattr(processor_module, "_download_hair_model", lambda path: None)
+        config = ProcessorConfig(model_dir=str(tmp_path), landmark_correction=mode)
+        processor = MakeupProcessor(config=config)
+        try:
+            corrector = processor._rendering_pipeline._lash_corrector
+            assert corrector.mode == mode
+        finally:
+            processor.close()

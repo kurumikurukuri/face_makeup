@@ -1,5 +1,9 @@
 """
-Eyeliner makeup pass — curve mask with optional rule-based edge correction.
+Eyeliner makeup pass — curve mask along the (corrected) lash line.
+
+The lash-line correction itself runs once per face in the renderer
+(:mod:`face_makeup.core.landmark_correction`); this pass draws the edge
+landmarks it is given.
 """
 from __future__ import annotations
 
@@ -7,11 +11,9 @@ import cv2
 import numpy as np
 
 from face_makeup.constants import (
-    EYELINER_CORRECTION_MAP,
     EYELINER_LEFT_INDICES,
     EYELINER_RIGHT_INDICES,
 )
-from face_makeup.core.eyeliner_corrector import EyelinerCorrector
 from face_makeup.core.pipeline import BlendStrategy, MakeupPass, MaskStrategy
 from face_makeup.core.blend.blend_utils import (
     base_stroke_thickness,
@@ -31,7 +33,9 @@ _INDICES_MAP = {
 
 
 class EyelinerMaskStrategy(MaskStrategy):
-    """Curve mask for eyeliner, optionally corrected via rule-based edge detection."""
+    """Curve mask for eyeliner along the upper and lower lash lines."""
+
+    uses_lash_line = True
 
     def __init__(
         self,
@@ -43,8 +47,6 @@ class EyelinerMaskStrategy(MaskStrategy):
     ):
         self._part_name = part_name
         self._indices_dict = _INDICES_MAP[part_name]
-        self._correction_map = EYELINER_CORRECTION_MAP.get(part_name, {})
-        self._corrector = EyelinerCorrector()
         self._thickness = thickness
         self._softness = softness
         self._feather_scale = feather_scale
@@ -57,18 +59,12 @@ class EyelinerMaskStrategy(MaskStrategy):
         image: np.ndarray | None = None,
         landmarks: object | None = None,
     ) -> np.ndarray:
-        h, w = image_shape
-        mask = np.zeros((h, w), dtype=np.uint8)
-
+        """Return the soft eyeliner mask drawn through *coords* (sub-pixel)."""
         feather_px = feather_px_from_softness(
             self._softness, coords, image_shape,
             feather_scale=self._feather_scale,
         )
-
-        if image is not None and self._correction_map:
-            mask = self._generate_corrected(coords, image_shape, image)
-        else:
-            mask = self._generate_simple(coords, image_shape)
+        mask = self._draw_polylines(coords, image_shape)
 
         # Thickness dilation belongs to geometry, so it must run before the
         # fade — otherwise the added band would have a hard (unfaded) edge.
@@ -78,7 +74,7 @@ class EyelinerMaskStrategy(MaskStrategy):
 
         return soften_mask(mask, feather_px, soften_floor=self._soften_floor)
 
-    def _generate_simple(
+    def _draw_polylines(
         self, coords: np.ndarray, image_shape: tuple[int, int]
     ) -> np.ndarray:
         h, w = image_shape
@@ -92,37 +88,6 @@ class EyelinerMaskStrategy(MaskStrategy):
             if len(points) < 2:
                 continue
             points_shifted = (points * scale).astype(np.int32)
-            part_mask = np.zeros((h, w), dtype=np.uint8)
-            cv2.polylines(
-                part_mask, [points_shifted], isClosed=False,
-                color=255, thickness=thickness,
-                lineType=cv2.LINE_AA, shift=shift,
-            )
-            mask = cv2.bitwise_or(mask, part_mask)
-
-        return mask
-
-    def _generate_corrected(
-        self, coords: np.ndarray, image_shape: tuple[int, int], image: np.ndarray
-    ) -> np.ndarray:
-        h, w = image_shape
-        mask = np.zeros((h, w), dtype=np.uint8)
-        thickness = base_stroke_thickness((h, w))
-        shift = _SUBPIXEL_BITS
-        scale = 1 << shift
-
-        corrected_flat = self._corrector.correct_points(
-            coords, self._part_name, eyeliner=image
-        )
-
-        offset = 0
-        for sub_indices in self._correction_map.values():
-            n = len(sub_indices)
-            sub_points = corrected_flat[offset:offset + n]
-            offset += n
-            if len(sub_points) < 2:
-                continue
-            points_shifted = (sub_points * scale).astype(np.int32)
             part_mask = np.zeros((h, w), dtype=np.uint8)
             cv2.polylines(
                 part_mask, [points_shifted], isClosed=False,

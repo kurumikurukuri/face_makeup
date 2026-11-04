@@ -28,6 +28,7 @@
 本ライブラリでは、これらの課題に対してルールベースの画像処理によるメイク加工を採用することで対応しています。
 
 - 処理にGPUが不要で、入力パラメータと出力の挙動が明示的
+- 例外として、まつ毛ラインの位置合わせにのみCPUで動作する小型の機械学習モデル（[EyeContourRefiner](https://github.com/kurumikurukuri/EyeContourRefiner) のまつ毛ライン補正モデル）を使用（ルールベース補正への切り替えも可能。FAQを参照）
 - 実際のメイク検討に知見として還元しやすい
 
 ---
@@ -39,7 +40,7 @@
 - リップ：口紅の色および透明度を調整
 - チーク：頬に自然なブラッシュを適用
 - アイシャドウ：まぶた全体または目の淵（キワ）にカスタマイズ可能なカラーを適用（グリッター/ラメ対応）
-- アイライナー：目の輪郭に沿ったラインを描画
+- アイライナー：まつ毛ラインに沿ったラインを描画
 - カラコン：虹彩にカラーコンタクト効果を適用
 - 涙袋：下まぶたの涙袋にハイライトとシャドウを適用（グリッター/ラメ対応）
 - ファンデーション：顔全体の肌トーン調整
@@ -87,6 +88,14 @@ uv pip install -e .
 # Streamlit Webアプリを使う場合
 uv pip install -e ".[app]"
 ```
+
+インストール時に、まつ毛ライン補正モデル（約15MB）を [EyeContourRefiner](https://github.com/kurumikurukuri/EyeContourRefiner) の `main` から取得します（描画時にはダウンロードしません）。開発時は、`git pull` のたびに最新のモデルへ更新されるよう、clone 後に一度だけ次を実行してください。
+
+```bash
+git config core.hooksPath .githooks
+```
+
+詳細は [models/README.md](models/README.md) を参照してください。
 
 ## クイックスタート
 
@@ -146,6 +155,18 @@ streamlit run apps/streamlit_app.py
 ### Q: `ctx.show()` が動作しません
 
 **A:** `show()` はOpenCVのGUIウィンドウを使用するため、WSLやヘッドレス環境では動作しません。代わりに `ctx.save()` で保存してください。
+
+### Q: オフライン環境で使えますか？
+
+**A:** はい。ただし、デフォルトの機械学習補正（`landmark_correction='ml'`）は、インストール時に取得したまつ毛ライン補正モデルが存在しない、または読み込めない場合、目のメイクやファンデーションを含む描画で例外を送出します。face_makeup をインストールし直すか（ソースからなら `pip install -e .`）、ルールベース補正を指定してください。
+
+```python
+from face_makeup import MakeupProcessor, ProcessorConfig
+
+processor = MakeupProcessor(ProcessorConfig(landmark_correction='rule'))
+```
+
+事前にモデルファイルを保存先へ配置しておけば、機械学習補正もオフラインで使えます（保存先は [models/README.md](models/README.md) を参照）。
 
 ## ドキュメント
 

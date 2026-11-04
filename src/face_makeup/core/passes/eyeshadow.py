@@ -149,6 +149,8 @@ def _lerp_upper(
 class EyeShadowMaskStrategy(MaskStrategy):
     """Filled-polygon mask between the lash line and the size-lerped upper boundary."""
 
+    uses_lash_line = True
+
     def __init__(
         self,
         crease_indices: list[int],

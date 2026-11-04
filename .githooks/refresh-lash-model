@@ -1,0 +1,14 @@
+#!/bin/sh
+# Refresh the lash-line correction model (EyeContourRefiner main) after the
+# checkout changed. Enable once per clone:  git config core.hooksPath .githooks
+# Never fails the git command: a failed fetch keeps the previous model.
+root=$(git rev-parse --show-toplevel) || exit 0
+fetcher="$root/src/face_makeup/core/eyeliner_model.py"
+for py in "$root/.venv/Scripts/python.exe" "$root/.venv/bin/python" python3 python; do
+    if command -v "$py" >/dev/null 2>&1; then
+        "$py" "$fetcher" || true
+        exit 0
+    fi
+done
+echo "warning: python not found; lash-line correction model not refreshed" >&2
+exit 0

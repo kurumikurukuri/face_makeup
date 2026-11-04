@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -18,7 +17,13 @@ from urllib import request
 import numpy as np
 
 from face_makeup.core.face_detector import FaceDetector
+from face_makeup.core.landmark_correction import (
+    LANDMARK_CORRECTION_MODES,
+    LandmarkCorrection,
+    LashLineCorrector,
+)
 from face_makeup.core.landmark_extractor import LandmarkExtractor
+from face_makeup.core.model_files import resolve_model_dir as _resolve_model_dir
 from face_makeup.rendering_pipeline import RenderingPipeline
 from face_makeup.io_handler import IOHandler
 from face_makeup.context import ImageContext
@@ -37,65 +42,6 @@ _HAIR_MODEL_URL = (
 _HAIR_MODEL_SHA256 = (
     "0bec40bc9ba97c4143f3d4225a935014abffea37c1f3766ae32aba3f2748e711"
 )
-
-
-def _resolve_model_dir(explicit: Optional[str] = None) -> Path:
-    """Resolve the directory containing the hair segmentation model.
-
-    Priority chain (highest first):
-
-    1. *explicit* — caller-supplied path (``ProcessorConfig.model_dir``).
-    2. ``FACE_MAKEUP_MODEL_DIR`` environment variable.
-    3. Source-checkout ``models/`` directory, detected by checking whether the
-       ``__file__``-relative path exists. This keeps ``pip install -e .`` and
-       direct ``PYTHONPATH`` usage working without extra configuration.
-    4. Platform cache directory (always writable for auto-download):
-
-       - **Windows**: ``%LOCALAPPDATA%/face_makeup/models/``
-       - **macOS**: ``~/Library/Caches/face_makeup/models/``
-       - **Linux**: ``$XDG_CACHE_HOME/face_makeup/models/`` (falls back to
-         ``~/.cache/face_makeup/models/``).
-
-    Returns:
-        Absolute path to the model directory (created if it doesn't exist
-        for the platform-cache fallback).
-    """
-    # 1. Explicit caller-supplied path
-    if explicit:
-        return Path(explicit).resolve()
-
-    # 2. Environment variable
-    env_dir = os.environ.get("FACE_MAKEUP_MODEL_DIR")
-    if env_dir:
-        return Path(env_dir).resolve()
-
-    # 3. Source-checkout detection
-    source_models = (
-        Path(__file__).resolve().parent.parent.parent / "models"
-    )
-    if source_models.is_dir():
-        return source_models
-
-    # 4. Platform cache directory
-    if sys.platform == "win32":
-        base = Path(
-            os.environ.get(
-                "LOCALAPPDATA",
-                str(Path.home() / "AppData" / "Local"),
-            )
-        )
-        cache_dir = base / "face_makeup" / "models"
-    elif sys.platform == "darwin":
-        cache_dir = Path.home() / "Library" / "Caches" / "face_makeup" / "models"
-    else:
-        xdg_cache = os.environ.get("XDG_CACHE_HOME")
-        if xdg_cache:
-            cache_dir = Path(xdg_cache) / "face_makeup" / "models"
-        else:
-            cache_dir = Path.home() / ".cache" / "face_makeup" / "models"
-
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir
 
 
 def _verify_model_checksum(model_path: Path) -> bool:
@@ -229,12 +175,21 @@ class ProcessorConfig:
             When ``None`` (default), the directory is resolved via the
             :func:`_resolve_model_dir` priority chain (env var, source
             checkout, platform cache).
+        landmark_correction: Lash-line correction of the eye edge landmarks,
+            applied once per face and shared by eyeliner, eyeshadow, tear bag
+            and the foundation's eye exclusion.
+            ``'ml'`` (default) uses the EyeContourRefiner ONNX model
+            (fetched from EyeContourRefiner main when face_makeup is
+            installed, never while rendering) and raises when the installed
+            model is missing or cannot be loaded; there is no fallback. ``'rule'`` uses the
+            2nd-derivative zero-crossing detector.
     """
     min_detection_confidence: float = 0.5
     min_tracking_confidence: float = 0.5
     refine_landmarks: bool = True
     max_num_faces: int = 10
     model_dir: Optional[str] = None
+    landmark_correction: LandmarkCorrection = "ml"
 
     def __post_init__(self):
         """Validate parameter bounds."""
@@ -251,6 +206,11 @@ class ProcessorConfig:
         if self.model_dir is not None and not isinstance(self.model_dir, str):
             raise ValueError(
                 f"model_dir must be a string or None, got {type(self.model_dir).__name__}"
+            )
+        if self.landmark_correction not in LANDMARK_CORRECTION_MODES:
+            raise ValueError(
+                "landmark_correction must be 'ml' or 'rule', "
+                f"got {self.landmark_correction!r}"
             )
 
 
@@ -320,7 +280,11 @@ class MakeupProcessor:
             )
 
         # Create rendering pipeline (shared across all contexts)
-        self._rendering_pipeline = RenderingPipeline(hair_segmenter=hair_segmenter)
+        lash_corrector = LashLineCorrector(self._config.landmark_correction)
+        self._rendering_pipeline = RenderingPipeline(
+            hair_segmenter=hair_segmenter,
+            lash_corrector=lash_corrector,
+        )
 
         # Create I/O handler
         self._io_handler = IOHandler()

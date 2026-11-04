@@ -10,7 +10,7 @@ Adding a new custom landmark requires only:
 
 Landmark kinds:
   "mid"  — centroid of 2+ base landmarks → array coordinate
-  "edge" — direction vector P->Q for rule-based edge correction → P's coordinate stored in array,
+  "edge" — direction vector P->Q for lash-line edge correction → P's coordinate stored in array,
            direction info in EDGE_LANDMARK_DIRECTIONS
 """
 from typing import NamedTuple
@@ -22,7 +22,7 @@ class CustomLandmarkDef(NamedTuple):
     Attributes:
         logical_id: Unique identifier, also used as the array index
                     in the extended coordinates array.
-        kind: "mid" for centroid computation, "edge" for rule-based edge correction.
+        kind: "mid" for centroid computation, "edge" for lash-line edge correction.
         base_indices: Source MediaPipe landmark indices (0-477).
     """
 
@@ -44,7 +44,7 @@ CUSTOM_LANDMARK_DEFS: list[CustomLandmarkDef] = [
     CustomLandmarkDef(1103, "mid", (15, 14)),
     CustomLandmarkDef(1104, "mid", (316, 317)),
     CustomLandmarkDef(1105, "mid", (403, 402)),
-    # Eyeliner edge — direction vectors (upper left)
+    # Lash-line edge — direction vectors (upper left)
     CustomLandmarkDef(1401, "edge", (173, 190)),
     CustomLandmarkDef(1402, "edge", (157, 56)),
     CustomLandmarkDef(1403, "edge", (158, 28)),
@@ -52,8 +52,7 @@ CUSTOM_LANDMARK_DEFS: list[CustomLandmarkDef] = [
     CustomLandmarkDef(1405, "edge", (160, 29)),
     CustomLandmarkDef(1406, "edge", (161, 30)),
     CustomLandmarkDef(1407, "edge", (246, 247)),
-    CustomLandmarkDef(1408, "edge", (33, 113)),
-    # Eyeliner edge — direction vectors (lower left)
+    # Lash-line edge — direction vectors (lower left)
     CustomLandmarkDef(1501, "edge", (7, 25)),
     CustomLandmarkDef(1502, "edge", (163, 110)),
     CustomLandmarkDef(1503, "edge", (144, 24)),
@@ -61,7 +60,7 @@ CUSTOM_LANDMARK_DEFS: list[CustomLandmarkDef] = [
     CustomLandmarkDef(1505, "edge", (153, 22)),
     CustomLandmarkDef(1506, "edge", (154, 26)),
     CustomLandmarkDef(1507, "edge", (155, 112)),
-    # Eyeliner edge — direction vectors (upper right)
+    # Lash-line edge — direction vectors (upper right)
     CustomLandmarkDef(1601, "edge", (398, 414)),
     CustomLandmarkDef(1602, "edge", (384, 286)),
     CustomLandmarkDef(1603, "edge", (385, 258)),
@@ -69,8 +68,7 @@ CUSTOM_LANDMARK_DEFS: list[CustomLandmarkDef] = [
     CustomLandmarkDef(1605, "edge", (387, 259)),
     CustomLandmarkDef(1606, "edge", (388, 260)),
     CustomLandmarkDef(1607, "edge", (466, 467)),
-    CustomLandmarkDef(1608, "edge", (263, 342)),
-    # Eyeliner edge — direction vectors (lower right)
+    # Lash-line edge — direction vectors (lower right)
     CustomLandmarkDef(1701, "edge", (249, 255)),
     CustomLandmarkDef(1702, "edge", (390, 339)),
     CustomLandmarkDef(1703, "edge", (373, 254)),

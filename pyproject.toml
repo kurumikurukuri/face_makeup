@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+# onnxruntime: setup.py validates the fetched lash-line model's ONNX contract.
+requires = ["setuptools>=64", "wheel", "onnxruntime>=1.18"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -24,10 +25,12 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Processing",
 ]
 dependencies = [
-    "opencv-python>=4.7.0",
+    "opencv-python-headless>=4.7.0,<5",  # 5.x changes warpAffine rounding and shifts lash-line correction model patches
+    "opencv-contrib-python<5",  # mediapipe pulls it unpinned and it ships the same cv2 module
     "numpy>=1.25.0,<2.0",
     "mediapipe==0.10.21",
     "pillow>=10.0.0",
+    "onnxruntime>=1.18",
 ]
 
 [project.optional-dependencies]
@@ -38,7 +41,9 @@ dev = [
     "ruff>=0.6.0",
 ]
 app = [
-    "streamlit>=1.24.0",
+    "streamlit==1.58.0",
+    # starlette 1.8 breaks Streamlit's media endpoint (st.image renders blank)
+    "starlette<1.8",
     "pillow-heif>=0.13.0",
 ]
 
@@ -47,6 +52,12 @@ Repository = "https://github.com/kurumikurukuri/face_makeup.git"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# ruff configuration
+# Pin the rule set explicitly so newer ruff releases (dev deps are unpinned)
+# do not widen the default selection and break CI.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 # pytest configuration
 [tool.pytest.ini_options]

@@ -8,9 +8,13 @@ import sys
 import threading
 from pathlib import Path
 
-# Add src directory to path for imports when package is not installed
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / "src"))
+# Fall back to the source tree only when face_makeup is not installed: the
+# installed package carries the lash-line correction model, src/ may not.
+try:
+    import face_makeup  # noqa: F401
+except ImportError:
+    project_root = Path(__file__).parent.parent
+    sys.path.insert(0, str(project_root / "src"))
 
 import streamlit as st
 from PIL import Image, ImageOps
@@ -28,6 +32,7 @@ except ImportError:
 
 
 from face_makeup import MakeupProcessor
+from face_makeup.core.eyeliner_model import ModelContractError
 
 # ========================================
 # Helper Functions
@@ -764,6 +769,9 @@ if image_source is not None:
                         if face_count > 1:
                             st.info(f"{face_count}つの顔を検出しました。最初の顔のみにメイクを適用しています。")
 
+                except ModelContractError as e:
+                    # A ValueError subclass, but a model problem, not bad input.
+                    st.error(f"まつ毛ライン補正モデルの形式が想定と異なるため、メイク処理に失敗しました: {str(e)}")
                 except ValueError as e:
                     # processor.open() raises ValueError("No face detected") when no
                     # face is found — surface a friendly message instead of leaking

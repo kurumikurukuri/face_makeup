@@ -28,7 +28,6 @@ LM_1404 = 1404
 LM_1405 = 1405
 LM_1406 = 1406
 LM_1407 = 1407
-LM_1408 = 1408
 
 LM_1501 = 1501
 LM_1502 = 1502
@@ -45,7 +44,6 @@ LM_1604 = 1604
 LM_1605 = 1605
 LM_1606 = 1606
 LM_1607 = 1607
-LM_1608 = 1608
 
 LM_1701 = 1701
 LM_1702 = 1702
@@ -99,11 +97,18 @@ CHEEK_RIGHT_INDICES = [
 # EyeShadowMaskStrategy lerps the upper boundary from the lash line (size=0)
 # toward the crease line (size=1), so a small size paints a thin band along
 # the lash line and 1.0 covers the whole lid.
+# The lash line uses the eyeliner edge landmarks (LM_14xx / LM_16xx) rather
+# than their MediaPipe base points (173 ... 246 / 398 ... 466): the renderer
+# writes the corrected lash line into those rows, so eyeshadow meets eyeliner.
 EYELID_CREASE_LEFT_INDICES = [113, 225, 224, 223, 222, 221, 190]  # outer->inner
-EYELID_LASH_LEFT_INDICES = [243, 133, 173, 157, 158, 159, 160, 161, 246, 33, 130, 226]  # inner->outer
+EYELID_LASH_LEFT_INDICES = [  # inner->outer
+    243, 133, LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, 33, 130, 226,
+]
 
 EYELID_CREASE_RIGHT_INDICES = [342, 445, 444, 443, 442, 441, 414]  # outer->inner
-EYELID_LASH_RIGHT_INDICES = [463, 362, 398, 384, 385, 386, 387, 388, 466, 263, 359, 446]  # inner->outer
+EYELID_LASH_RIGHT_INDICES = [  # inner->outer
+    463, 362, LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, 263, 359, 446,
+]
 
 # Full closed polygon (crease outer->inner + lash inner->outer), kept for
 # consumers that need the concatenated contour.
@@ -115,25 +120,49 @@ EYELID_RIGHT_INDICES = EYELID_CREASE_RIGHT_INDICES + EYELID_LASH_RIGHT_INDICES
 # share their crease seam vertices; the lash lists overlap by one point into
 # the neighbouring zone so the zone boundary edges stagger rather than aligning
 # into a single visible kink.
-EYELID_OUTER_LEFT_INDICES = ([113, 225, 224], [159, 160, 161, 246, 33, 130, 226])
-EYELID_CENTER_LEFT_INDICES = ([224, 223, 222], [157, 158, 159, 160, 161])
-EYELID_INNER_LEFT_INDICES = ([222, 221, 190], [243, 133, 173, 157, 158, 159])
+EYELID_OUTER_LEFT_INDICES = (
+    [113, 225, 224], [LM_1404, LM_1405, LM_1406, LM_1407, 33, 130, 226],
+)
+EYELID_CENTER_LEFT_INDICES = (
+    [224, 223, 222], [LM_1402, LM_1403, LM_1404, LM_1405, LM_1406],
+)
+EYELID_INNER_LEFT_INDICES = (
+    [222, 221, 190], [243, 133, LM_1401, LM_1402, LM_1403, LM_1404],
+)
 
-EYELID_OUTER_RIGHT_INDICES = ([342, 445, 444], [386, 387, 388, 466, 263, 359, 446])
-EYELID_CENTER_RIGHT_INDICES = ([444, 443, 442], [384, 385, 386, 387, 388])
-EYELID_INNER_RIGHT_INDICES = ([442, 441, 414], [463, 362, 398, 384, 385, 386])
+EYELID_OUTER_RIGHT_INDICES = (
+    [342, 445, 444], [LM_1604, LM_1605, LM_1606, LM_1607, 263, 359, 446],
+)
+EYELID_CENTER_RIGHT_INDICES = (
+    [444, 443, 442], [LM_1602, LM_1603, LM_1604, LM_1605, LM_1606],
+)
+EYELID_INNER_RIGHT_INDICES = (
+    [442, 441, 414], [463, 362, LM_1601, LM_1602, LM_1603, LM_1604],
+)
 
 # Extended zones — adjacent zone pairs merged into single (crease, lash) tuples.
 # inner_center = inner ∪ center,  outer_center = outer ∪ center. The lash lists
 # carry the same one-point overlap into the neighbouring third as the base zones.
-EYELID_INNER_CENTER_LEFT_INDICES = ([224, 223, 222, 221, 190], [243, 133, 173, 157, 158, 159, 160, 161])
-EYELID_OUTER_CENTER_LEFT_INDICES = ([113, 225, 224, 223, 222], [157, 158, 159, 160, 161, 246, 33, 130, 226])
-EYELID_INNER_CENTER_RIGHT_INDICES = ([444, 443, 442, 441, 414], [463, 362, 398, 384, 385, 386, 387, 388])
-EYELID_OUTER_CENTER_RIGHT_INDICES = ([342, 445, 444, 443, 442], [384, 385, 386, 387, 388, 466, 263, 359, 446])
+EYELID_INNER_CENTER_LEFT_INDICES = (
+    [224, 223, 222, 221, 190],
+    [243, 133, LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406],
+)
+EYELID_OUTER_CENTER_LEFT_INDICES = (
+    [113, 225, 224, 223, 222],
+    [LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, 33, 130, 226],
+)
+EYELID_INNER_CENTER_RIGHT_INDICES = (
+    [444, 443, 442, 441, 414],
+    [463, 362, LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606],
+)
+EYELID_OUTER_CENTER_RIGHT_INDICES = (
+    [342, 445, 444, 443, 442],
+    [LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, 263, 359, 446],
+)
 
 
 EYELINER_UPPER_LEFT_INDICES = [
-    LM_1507, LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, LM_1408, 130, 226
+    LM_1507, LM_1401, LM_1402, LM_1403, LM_1404, LM_1405, LM_1406, LM_1407, 130, 226
 ]
 
 EYELINER_LOWER_LEFT_INDICES = [
@@ -141,7 +170,7 @@ EYELINER_LOWER_LEFT_INDICES = [
 ]
 
 EYELINER_UPPER_RIGHT_INDICES = [
-    LM_1707, LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, LM_1608, 359, 446
+    LM_1707, LM_1601, LM_1602, LM_1603, LM_1604, LM_1605, LM_1606, LM_1607, 359, 446
 ]
 
 EYELINER_LOWER_RIGHT_INDICES = [

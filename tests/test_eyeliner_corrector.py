@@ -172,6 +172,34 @@ class TestCorrectEyelinerPoints:
             assert result.ndim == 2
             assert result.shape[1] == 2
 
+    def test_shared_edge_detected_once(
+        self, corrector, monkeypatch, edge_color_image, sample_landmarks
+    ):
+        """Each distinct edge runs edge detection once; 1507/1707 reuse one result."""
+        from face_makeup.constants import EYELINER_CORRECTION_MAP
+        from face_makeup.core.lash_line_edges import unique_edges
+
+        calls = []
+        real = corrector.find_edge
+
+        def spy(*args, **kwargs):
+            calls.append(args[1:5])
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(corrector, "find_edge", spy)
+        h, w = edge_color_image.shape[:2]
+        coords = sample_landmarks.to_image_coords(w, h)
+
+        for part_name, correction_map in EYELINER_CORRECTION_MAP.items():
+            calls.clear()
+            result = corrector.correct_points(coords, part_name, eyeliner=edge_color_image)
+            assert len(calls) == len(unique_edges(part_name))
+
+            slots = [idx for indices in correction_map.values() for idx in indices]
+            shared = [i for i, idx in enumerate(slots) if slots.count(idx) > 1]
+            assert shared, part_name
+            np.testing.assert_array_equal(result[shared[0]], result[shared[-1]])
+
     def test_invalid_part_name_raises(self, corrector, uniform_color_image, sample_landmarks):
         """Non-eyeliner part should raise ValueError."""
         h, w = uniform_color_image.shape[:2]
@@ -222,15 +250,13 @@ class TestGetEyelinerCorrectionDebug:
             )
 
     def test_point_count_matches_correction_map(self, corrector, sample_landmarks):
-        """Debug entry count should match total edge indices in correction map."""
-        from face_makeup.constants import EDGE_LANDMARK_DIRECTIONS, EYELINER_CORRECTION_MAP
+        """One debug entry per distinct edge (the shared 1507/1707 appears once)."""
+        from face_makeup.constants import EYELINER_CORRECTION_MAP
+        from face_makeup.core.lash_line_edges import unique_edges
         image = np.full((200, 200, 3), 128, dtype=np.uint8)
 
-        for part_name, correction_map in EYELINER_CORRECTION_MAP.items():
-            expected = sum(
-                sum(1 for idx in indices if idx in EDGE_LANDMARK_DIRECTIONS)
-                for indices in correction_map.values()
-            )
+        for part_name in EYELINER_CORRECTION_MAP:
+            expected = len(unique_edges(part_name))
             side = 'right' if part_name.endswith('_right') else 'left'
             entries = corrector.get_debug_entries(
                 image, sample_landmarks, (200, 200), part_name, side=side

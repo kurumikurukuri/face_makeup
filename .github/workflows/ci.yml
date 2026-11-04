@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The lash-line correction model tracks EyeContourRefiner's main branch and is
+  # fetched by `pip install`, so re-test against the latest published model even
+  # when this repository is idle.
+  schedule:
+    - cron: "0 18 * * *"  # daily, 03:00 JST
+  workflow_dispatch:
 
 jobs:
   test:
@@ -17,11 +23,16 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # setup.py's build hook fetches the latest lash-line correction model
+      # (EyeContourRefiner main) into src/face_makeup/models/; never cached.
       - name: Install dependencies
         run: pip install -e ".[dev,app]"
 
+      - name: Show the installed lash-line correction model
+        run: sha256sum src/face_makeup/models/eye_contour_refiner.onnx
+
       - name: Lint with ruff
-        run: ruff check src tests
+        run: ruff check src tests setup.py
 
       - name: Download hair segmentation model
         run: |

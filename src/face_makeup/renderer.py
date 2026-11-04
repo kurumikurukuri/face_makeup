@@ -17,12 +17,19 @@ from uuid import uuid4
 import cv2
 import numpy as np
 
+from face_makeup.constants import EDGE_LANDMARK_DIRECTIONS, EYELINER_CORRECTION_MAP
 from face_makeup.core.passes.cheek import CheekBlendStrategy
-from face_makeup.core.types import CheekParams, EyeLinerParams
+from face_makeup.core.eyeliner_ml_corrector import EyelinerMLCorrector
+from face_makeup.core.pipeline import MakeupPass
+from face_makeup.core.types import CheekParams
 
 if TYPE_CHECKING:
     from face_makeup.face import Face
     from face_makeup.core.debug_visualizer import DebugVisualizer
+    from face_makeup.core.landmark_correction import (
+        LashLineCorrection,
+        LashLineCorrector,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +108,14 @@ def _build_landmark_group_mask(
     return _feather_exclusion(combined, sigma=feather_sigma)
 
 
+def _uses_lash_line(pass_: MakeupPass) -> bool:
+    """Whether *pass_* draws or gates with the lash-line edge landmarks."""
+    if getattr(pass_.mask_strategy, "uses_lash_line", False):
+        return True
+    groups = [*pass_.clip_landmarks, *pass_.exclusion_landmarks]
+    return any(idx in EDGE_LANDMARK_DIRECTIONS for group in groups for idx in group)
+
+
 class Renderer:
     """
     Internal rendering engine.
@@ -111,7 +126,8 @@ class Renderer:
     def __init__(
         self,
         visualizer: DebugVisualizer | None = None,
-        hair_segmenter: object | None = None
+        hair_segmenter: object | None = None,
+        lash_corrector: LashLineCorrector | None = None,
     ):
         """
         Initialize renderer.
@@ -119,9 +135,88 @@ class Renderer:
         Args:
             visualizer: Optional debug visualizer.
             hair_segmenter: Optional HairSegmenter for hair mask subtraction.
+            lash_corrector: Corrects the lash-line edge landmarks once per face
+                before the masks are generated (``ProcessorConfig.landmark_correction``).
+                ``None`` draws the uncorrected landmarks.
         """
         self._visualizer = visualizer
         self._hair_segmenter = hair_segmenter
+        self._lash_corrector = lash_corrector
+
+    def _face_coords(
+        self, image: np.ndarray, face: Face
+    ) -> tuple[np.ndarray, LashLineCorrection | None]:
+        """Return the coords every pass of *face* draws with, plus the correction.
+
+        The lash line is corrected only when a pass uses it, so a face without
+        eye makeup never runs the correction model.
+        """
+        h, w = image.shape[:2]
+        coords = face.landmarks.to_image_coords(w, h)
+        if self._lash_corrector is None or not any(
+            _uses_lash_line(pass_) for pass_ in face.makeup_passes
+        ):
+            return coords, None
+        correction = self._lash_corrector.apply(image, face.landmarks, coords)
+        return correction.coords, correction
+
+    def _save_lash_line_debug(
+        self,
+        image: np.ndarray,
+        face: Face,
+        correction: LashLineCorrection,
+        session_id: str,
+    ) -> None:
+        """Save the lash-line correction debug output of both eyes.
+
+        Both correctors return the entries cached by this render's
+        ``correct_points`` calls, so nothing is re-detected or re-inferred.
+        ML entries are drawn as one P/Q/R overlay per eye; rule entries as
+        per-point intensity/derivative plots.
+        """
+        corrector = correction.corrector
+        for part_name in EYELINER_CORRECTION_MAP:
+            eye_side = 'right' if part_name.endswith('_right') else 'left'
+            debug_entries = corrector.get_debug_entries(
+                image=image,
+                landmarks=face.landmarks,
+                image_shape=image.shape[:2],
+                part_name=part_name,
+                side=eye_side,
+                eyeliner=image,
+            )
+            if isinstance(corrector, EyelinerMLCorrector):
+                self._visualizer.save_eyeliner_ml_debug(
+                    image=image, side=eye_side, entries=debug_entries,
+                    session_id=session_id,
+                )
+            else:
+                self._save_rule_debug(image, debug_entries, session_id)
+
+    def _save_rule_debug(
+        self, image: np.ndarray, debug_entries: list[dict], session_id: str
+    ) -> None:
+        debug_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        for i, entry in enumerate(debug_entries):
+            if 'samples' not in entry:
+                continue
+            self._visualizer.save_eyeliner_correction_debug(
+                image=image,
+                side=entry['side'],
+                gray=debug_gray,
+                px=entry['px'], py=entry['py'],
+                qx=entry['qx'], qy=entry['qy'],
+                detected_x=entry['detected_x'],
+                detected_y=entry['detected_y'],
+                samples=entry.get('samples'),
+                first_derivative=entry.get('first_derivative'),
+                second_derivative=entry.get('second_derivative'),
+                t_values=entry.get('t_values'),
+                zero_crossings=entry.get('zero_crossings'),
+                best_idx=entry.get('best_idx'),
+                point_index=i,
+                session_id=session_id,
+            )
 
     def render_face(
         self,
@@ -145,8 +240,12 @@ class Renderer:
         session_id = session_id or self._generate_session_id()
         face_session = f"{session_id}_face{face.face_id}"
 
-        h, w = image.shape[:2]
-        coords = face.landmarks.to_image_coords(w, h)
+        # Lash-line edge landmarks are corrected once here, so every pass
+        # (eyeliner, eyeshadow, tear bag, foundation's eye exclusion) shares
+        # one lash line.
+        coords, correction = self._face_coords(image, face)
+        if correction is not None and debug and self._visualizer:
+            self._save_lash_line_debug(image, face, correction, face_session)
 
         # Phase 1 — Mask generation.
         # Each mask strategy returns its FINAL soft mask (geometry + fade baked
@@ -238,48 +337,6 @@ class Renderer:
 
             if debug and self._visualizer:
                 logger.debug(f"Applied pass: {pass_.pass_type}")
-
-            # Eyeliner correction debug visualization
-            if (
-                debug
-                and self._visualizer
-                and isinstance(pass_.params, EyeLinerParams)
-                and pass_.mask_strategy is not None
-            ):
-                corrector = getattr(pass_.mask_strategy, '_corrector', None)
-                if corrector is not None:
-                    eye_side = (
-                        'right' if pass_.pass_type.endswith('_right') else 'left'
-                    )
-                    debug_gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-                    debug_entries = corrector.get_debug_entries(
-                        image=image,
-                        landmarks=face.landmarks,
-                        image_shape=image.shape[:2],
-                        part_name=pass_.pass_type,
-                        side=eye_side,
-                        eyeliner=image,
-                    )
-                    for i, entry in enumerate(debug_entries):
-                        if 'samples' not in entry:
-                            continue
-                        self._visualizer.save_eyeliner_correction_debug(
-                            image=image,
-                            side=entry['side'],
-                            gray=debug_gray,
-                            px=entry['px'], py=entry['py'],
-                            qx=entry['qx'], qy=entry['qy'],
-                            detected_x=entry['detected_x'],
-                            detected_y=entry['detected_y'],
-                            samples=entry.get('samples'),
-                            first_derivative=entry.get('first_derivative'),
-                            second_derivative=entry.get('second_derivative'),
-                            t_values=entry.get('t_values'),
-                            zero_crossings=entry.get('zero_crossings'),
-                            best_idx=entry.get('best_idx'),
-                            point_index=i,
-                            session_id=face_session,
-                        )
 
             # Cheek 3D debug visualization
             if (
