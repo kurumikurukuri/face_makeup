@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
     "opencv-python-headless>=4.7.0,<5",  # 5.x changes warpAffine rounding and shifts lash-line correction model patches
+    "opencv-contrib-python<5",  # mediapipe pulls it unpinned and it ships the same cv2 module
     "numpy>=1.25.0,<2.0",
     "mediapipe==0.10.21",
     "pillow>=10.0.0",

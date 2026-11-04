@@ -14,7 +14,7 @@
     - `'rule'` は従来のルールベース補正（2階微分ゼロ交差検出）。
   - モデルは本リポジトリに同梱せず、EyeContourRefiner の `main` の最新版を次のタイミングで取得する（`core/eyeliner_model.py`）。描画時にはダウンロードしない。SHA256 は固定せず、取得時と読み込み時に ONNX の入出力契約を検証する。`pip install` 時は onnxruntime をビルド依存（`[build-system] requires`）に含めているため、インストール前に必ず検証される。onnxruntime が入っていない Python で git hook を実行した場合は、読み込み時にだけ検証される。
     - `pip install`（`git+...`・`pip install -e .`・Community Cloud のデプロイ）: `setup.py` の `build_py` フックで取得し、パッケージデータ（`face_makeup/models/`）としてインストールする。アンインストールや更新では pip が古いモデルも削除するので、利用者がモデルファイルを管理する必要はない。
-      - `requirements.txt`（Community Cloud・`run_streamlit_app.bat`）を、face_makeup 自体（`.`）をインストールする内容に変更し、コア依存は `pyproject.toml` に一本化した（OpenCV はこれまでどおり `opencv-python-headless`）。Streamlit アプリは、face_makeup がインストールされていないときだけ `src/` から import する。
+      - `requirements.txt`（Community Cloud・`run_streamlit_app.bat`）を、face_makeup 自体（`.`）をインストールする内容に変更し、コア依存は `pyproject.toml` に一本化した（OpenCV は `requirements.txt` で使っていた `opencv-python-headless` に揃え、`pyproject.toml` の `opencv-python` から置き換えた）。Streamlit アプリは、face_makeup がインストールされていないときだけ `src/` から import する。
     - `git pull` 後: `.githooks/` の `post-merge` / `post-rewrite` フックで取得する（clone ごとに `git config core.hooksPath .githooks` を一度実行）。取得に失敗しても pull は中断せず、以前のモデルをそのまま使う。
     - 設計判断: 上流のモデル更新に自動で追従するため、commit SHA や SHA256 で固定しない。固定すると、モデルを更新するたびに固定値を書き換える PR が必要になる。固定しないことで生じる次の点は許容する。
       - すり替えのリスク: 上流リポジトリも同じ所有者が管理しており、onnxruntime では ONNX ファイル経由で任意のコードが実行されることはないため、影響は描画結果に限られる。
@@ -27,7 +27,7 @@
   - モデル入力の `eye_scale` は、モデルの学習データと同じく学習対象の14点（上下7点ずつ）から計算する。
   - 上下のラインで重複する1507/1707は、機械学習補正・ルールベース補正のどちらでも下まぶたの点として1回だけ補正し、両方のラインで同じ点を使う（`core/lash_line_edges.py`）。
   - CI は `pip install` のたびに `main` の最新モデルを取得してテストする（上流のモデル更新に気づけるよう、日次スケジュールでも起動。上流からの `repository_dispatch` は、検知が最大1日早まるだけで PAT の管理が増えるため使わない）。モデルがない場合、実モデルを使うテストはスキップではなく失敗とする。
-  - 依存に `onnxruntime` を追加。`opencv-python-headless` を `<5` に固定（5.x では `warpAffine` の丸め方が変わり、モデル入力のパッチがずれるため）。
+  - 依存に `onnxruntime` を追加。OpenCV を `<5` に固定（5.x では `warpAffine` の丸め方が変わり、モデル入力のパッチがずれるため）。`cv2` は複数の配布物が同じモジュールとして提供し、後からインストールされたものが使われるので、face_makeup が依存する `opencv-python-headless` と、mediapipe がバージョン指定なしで持ち込む `opencv-contrib-python` の両方を `<5` に固定する。インストールされた `cv2` の配布物がすべて 5 未満であることと、face_makeup が両方の上限を宣言していることをテストで確認する（`tests/test_dependencies.py`）。
 - `core/model_files.py` を追加。髪セグメンテーションモデルの配置ディレクトリの解決（`resolve_model_dir`。`processor.py` から移動）と、まつ毛ライン補正モデルのダウンロード処理（`download_file`）を提供する。`ProcessorConfig.model_dir` はこれまでどおり髪セグメンテーションモデルだけに適用される（まつ毛ライン補正モデルはパッケージと一緒にインストールされる）。
 - `MaskStrategy.uses_lash_line` を追加。まつ毛ラインのランドマークを使う `MaskStrategy`（アイライナー・アイシャドウ・涙袋）はこれを `True` にする。renderer は、`uses_lash_line` が `True` の `MaskStrategy` か、clip / exclusion にまつ毛ラインのランドマークを含むパス（ファンデーション）があるときだけ補正を行う。
 

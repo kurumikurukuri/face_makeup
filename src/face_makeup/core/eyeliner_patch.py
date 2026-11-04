@@ -6,7 +6,8 @@ Ported from EyeContourRefiner's ``eye_contour/data/patch_utils.py``
 patches produced by exactly this arithmetic, so any change here shifts patch
 pixels and silently degrades predictions: keep it numerically identical to the
 upstream implementation (including the ``cv2.warpAffine`` call, whose rounding
-changed in OpenCV 5 — hence the ``opencv-python<5`` pin).
+changed in OpenCV 5 — hence the ``<5`` pin on both ``opencv-python-headless``
+and mediapipe's ``opencv-contrib-python``, which ship the same ``cv2`` module).
 
 Geometry: P is the eye-opening contour landmark and Q the outward landmark of
 an edge; a point on the P->Q line is ``R = t*P + (1-t)*Q``.
